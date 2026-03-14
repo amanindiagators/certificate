@@ -1,0 +1,32 @@
+[Unit]
+Description=CA Certificates Backend API
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/ca-certificates/backend
+
+Environment="PATH=/var/www/ca-certificates/backend/venv/bin"
+EnvironmentFile=/var/www/ca-certificates/backend/.env.production
+
+# Run migrations before starting
+ExecStartPre=/var/www/ca-certificates/backend/venv/bin/alembic upgrade head
+
+# Start application
+ExecStart=/var/www/ca-certificates/backend/venv/bin/uvicorn server:app \
+    --host 127.0.0.1 \
+    --port 8000 \
+    --workers 4 \
+    --log-level info
+
+Restart=always
+RestartSec=10
+
+StandardOutput=append:/var/log/ca-certificates/backend.log
+StandardError=append:/var/log/ca-certificates/backend-error.log
+
+[Install]
+WantedBy=multi-user.target

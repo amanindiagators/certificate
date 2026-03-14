@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+python-dotenv
+pydantic
+starlette
+python-multipart
+pandas
+openpyxl
+openlocationcode
+sqlalchemy
+psycopg2-binary
+alembic

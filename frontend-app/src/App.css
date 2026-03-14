@@ -1,0 +1,516 @@
+/* ===============================
+   CERTIFICATE (A4) STYLES
+================================ */
+
+/**
+ * IMPORTANT IDEA:
+ * - On screen: we keep it looking like A4 (min-height), but allow content to grow.
+ * - On print: header/footer become position: fixed (repeat each page),
+ *   and content gets padding-top/bottom to avoid overlapping them.
+ */
+
+/* A4 wrapper (SCREEN) */
+.certificate-wrapper {
+  position: relative;
+  width: 210mm;
+  min-height: 297mm;
+  /* looks like at least 1 A4 */
+  height: auto;
+  /* ✅ allow multi-page growth */
+  margin: auto;
+  background: #fff;
+
+  /* ✅ MUST NOT be hidden for multi-page printing */
+  overflow: visible;
+
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1),
+    0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+/* Header image (SCREEN preview) */
+.certificate-header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 210mm;
+  height: 40mm;
+  object-fit: cover;
+  z-index: 0;
+}
+
+/* Footer image (SCREEN preview) */
+.certificate-footer {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 210mm;
+  height: 28mm;
+  object-fit: cover;
+  z-index: 0;
+}
+
+/* Content area (SCREEN) */
+.certificate-container {
+  position: relative;
+  z-index: 1;
+  background: transparent;
+  margin: 0;
+  max-width: none;
+  box-shadow: none;
+
+  display: block;
+  /* ✅ avoid flex-page tricks for print flow */
+  height: auto;
+  /* ✅ allow multi-page growth */
+  min-height: 297mm;
+
+  /* Reserve header/footer space */
+  padding: 40mm 14mm 28mm 14mm;
+
+  box-sizing: border-box;
+
+  font-family: "Times New Roman", Times, serif;
+  font-size: 12pt;
+  line-height: 1.55;
+  color: #000;
+}
+
+/* Title */
+.certificate-title {
+  font-family: "Times New Roman", Times, serif;
+  font-size: 14pt;
+  font-weight: 700;
+  text-align: center;
+  letter-spacing: 0.5px;
+  margin: 4mm 0 0mm;
+}
+
+/* Subtitle */
+.certificate-subtitle {
+  font-family: "Times New Roman", Times, serif;
+  font-size: 16pt;
+  font-weight: 600;
+  text-align: center;
+  margin: 0 0 2mm;
+}
+
+/* Body */
+.certificate-body {
+  font-family: "Times New Roman", Times, serif;
+  font-size: 12pt;
+  line-height: 1.55;
+  text-align: justify;
+}
+
+/* Table */
+.certificate-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0mm 0;
+  font-family: "Times New Roman", Times, serif;
+  table-layout: fixed;
+  max-width: 100%;
+}
+
+.certificate-table th,
+.certificate-table td {
+  border: 1px solid #000;
+  padding: 6px;
+  text-align: center;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  font-size: 10pt;
+  width: auto;
+}
+
+/* ===============================
+   COLUMN DEFINITIONS (STRUCTURAL)
+================================ */
+
+/* SR. NO. */
+.col-sr {
+  width: 16mm;
+  /* tight */
+}
+
+/* TEXT / PARTICULARS */
+.col-text {
+  width: auto;
+  /* take remaining space */
+}
+
+/* NUMERIC COLUMNS */
+.col-num {
+  width: 27mm;
+  /* stable currency width */
+}
+
+/* Alignment */
+.certificate-table td.col-num,
+.certificate-table th.col-num {
+  text-align: right;
+}
+
+.certificate-table td.col-text,
+.certificate-table th.col-text {
+  text-align: left;
+}
+
+.certificate-table td.col-sr,
+.certificate-table th.col-sr {
+  text-align: center;
+  white-space: nowrap;
+}
+
+.certificate-table th {
+  background-color: #f8fafc;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+/* Compact table */
+.certificate-table.compact {
+  margin: 1mm 0 !important;
+}
+
+.certificate-table.compact th,
+.certificate-table.compact td {
+  padding: 1.8mm !important;
+  font-size: 10pt !important;
+  line-height: 1 !important;
+}
+
+.certificate-table.compact th {
+  font-size: 11pt !important;
+}
+
+/* RBI SAC Annex alignment: col1 center, col2 left, col3 right */
+.sac-annex-table th:nth-child(1) {
+  text-align: center !important;
+}
+
+.sac-annex-table th:nth-child(2) {
+  text-align: left !important;
+}
+
+.sac-annex-table th:nth-child(3) {
+  text-align: right !important;
+}
+
+/* Body rows with 3 visible cells */
+.sac-annex-table tr td:first-child:nth-last-child(3) {
+  text-align: center !important;
+}
+
+.sac-annex-table tr td:nth-child(2):nth-last-child(2) {
+  text-align: left !important;
+}
+
+.sac-annex-table tr td:last-child {
+  text-align: right !important;
+}
+
+/* Body rows with 2 visible cells (because first column is row-spanned above) */
+.sac-annex-table tr td:first-child:nth-last-child(2) {
+  text-align: left !important;
+}
+
+/* Keep SAC checklist rows intact on print/page breaks */
+.sac-main-table tr,
+.sac-main-table td,
+.sac-main-table th {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+/* Signature section (do NOT force to bottom in multi-page mode) */
+.certificate-signature {
+  display: flex;
+  justify-content: space-between;
+}
+
+.signature-left,
+.signature-right {
+  font-family: "Times New Roman", Times, serif;
+  font-size: 10pt;
+  line-height: 1.5;
+}
+
+.signature-right {
+  text-align: right;
+}
+
+/* Optional: force a new printed page before a section */
+.break-before-page {
+  break-before: auto;
+  page-break-before: auto;
+}
+
+/* Compact-page mode (still ok for turnover small content) */
+.certificate-wrapper.compact-page .certificate-container {
+  padding-bottom: 28mm;
+}
+
+.certificate-wrapper.compact-page .certificate-title {
+  margin: 8mm 0 2mm;
+}
+
+.certificate-wrapper.compact-page .certificate-body {
+  margin-bottom: 1mm;
+}
+
+.certificate-wrapper.compact-page .certificate-table {
+  margin: 4mm 0;
+}
+
+/* RERA-only typography rules */
+.certificate-wrapper.rera-only .certificate-container {
+  padding: 15mm 10mm 15mm 10mm !important;
+}
+
+.certificate-wrapper.rera-only .certificate-container,
+.certificate-wrapper.rera-only .certificate-container * {
+  font-family: "Times New Roman", Times, serif !important;
+  font-size: 12pt !important;
+}
+
+.certificate-wrapper.rera-only .certificate-title {
+  font-size: 14pt !important;
+}
+
+/* Specific Table Sizing */
+.certificate-table {
+  font-family: "Times New Roman", Times, serif !important;
+  line-height: 1.2;
+}
+
+.certificate-table th {
+  font-size: 10pt !important; /* Table header size */
+}
+
+.certificate-table td {
+  font-size: 11pt !important; /* Table body size */
+}
+
+/* Prevent any table content from overflowing certificate preview/page */
+.certificate-container table {
+  width: 100%;
+  max-width: 100%;
+  table-layout: fixed;
+}
+
+.certificate-container table th,
+.certificate-container table td {
+  max-width: 0;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* Annexure header sizing */
+.annexure-header-10 {
+  font-size: 10pt !important;
+}
+
+/* PRINT */
+@media print {
+
+  /* =================================================
+     PAGE SETUP
+  ================================================= */
+  @page {
+    size: A4;
+    margin: 0;
+    /* spacers handle vertical space */
+  }
+
+  body {
+    margin: 0 !important;
+    background: #fff !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    font-family: "Times New Roman", Times, serif !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  /* =================================================
+     FIXED HEADER & FOOTER (REPEAT ON EVERY PAGE)
+  ================================================= */
+  .certificate-header {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 210mm;
+    height: 40mm;
+    z-index: 1000;
+    object-fit: cover !important;
+  }
+
+  .certificate-footer {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 210mm;
+    height: 28mm;
+    z-index: 1000;
+    object-fit: cover !important;
+  }
+
+  /* =================================================
+     MAIN WRAPPER
+  ================================================= */
+  .certificate-wrapper {
+    box-shadow: none !important;
+    margin: 0 !important;
+    width: 210mm !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+
+  .certificate-wrapper.no-letterhead .certificate-container {
+    padding: 0 8mm !important;
+  }
+
+  .certificate-wrapper.rera-only .certificate-container {
+    padding: 15mm 10mm 15mm 10mm !important;
+  }
+
+  /* =================================================
+     CONTENT CONTAINER
+     ❗ NO TOP/BOTTOM PADDING IN PRINT
+  ================================================= */
+  .certificate-container {
+    padding: 0 10mm !important;
+    /* side margins only */
+    margin: 0 !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+    display: block !important;
+  }
+
+  /* =================================================
+     FLOW-CONTROL TABLE (OPTIONAL BUT SAFE)
+     Use only if you wrap content in it
+  ================================================= */
+  .print-layout-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+  }
+
+  /* Reserve header/footer space PER PAGE */
+  .print-header-spacer {
+    height: 40mm;
+    /* header + breathing space */
+  }
+
+  .print-footer-spacer {
+    height: 32mm;
+    /* footer + breathing space */
+  }
+
+  /* =================================================
+     TABLE BEHAVIOUR
+  ================================================= */
+  thead {
+    display: table-header-group;
+  }
+
+  tfoot {
+    display: table-footer-group;
+  }
+
+  tr {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  .certificate-table {
+    width: 100% !important;
+    table-layout: fixed !important;
+  }
+
+  /* =================================================
+     PAGE BREAK HELPERS
+  ================================================= */
+  .break-before-page {
+    page-break-before: always;
+    break-before: page;
+  }
+
+  .certificate-wrapper.rera-only .break-before-page {
+    margin-top: 15mm !important;
+    margin-bottom: 5mm !important;
+  }
+
+  .force-page-break {
+    page-break-before: always;
+    break-before: page;
+  }
+
+  .table-page-block {
+    page-break-inside: avoid;
+    break-inside: avoid;
+    margin-top: 15mm;
+    margin-bottom:5mm;
+  }
+
+.certificate-container {
+    font-size: 12pt !important;
+  }
+
+  .certificate-wrapper.rera-only .certificate-container,
+  .certificate-wrapper.rera-only .certificate-container * {
+    font-family: "Times New Roman", Times, serif !important;
+    font-size: 12pt !important;
+  }
+
+  .certificate-wrapper.rera-only .certificate-title {
+    font-size: 14pt !important;
+  }
+
+  .certificate-wrapper.rera-only .certificate-table th,
+  .certificate-wrapper.rera-only .certificate-table td,
+  .certificate-wrapper.rera-only .print-layout-table td {
+    font-size: 12pt !important;
+  }
+
+  /* Force tables to stay at defined sizes during print */
+  .certificate-table th {
+    font-size: 10pt !important;
+  }
+
+  .certificate-table td,
+  .print-layout-table td {
+    font-size: 11pt !important;
+  }
+
+}
+
+/* ---------- Preview Fit (Right Side) ---------- */
+.preview-stage {
+  background: #f8fafc;
+  padding: 12px;
+}
+
+.preview-canvas {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+/* This scales the A4 certificate to fit inside preview area */
+.preview-scale {
+  transform-origin: top center;
+  transform: scale(0.82);
+  /* adjust 0.75–0.90 based on your screen */
+}
+
+/* Remove extra shadow in preview (optional) */
+.preview-scale .certificate-wrapper {
+  box-shadow: none !important;
+}

@@ -1,0 +1,204 @@
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Manrope:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* -------------------------------------------------------
+   Base Typography + Page Background (Navy + Teal corporate)
+-------------------------------------------------------- */
+body {
+  margin: 0;
+  font-family: 'Manrope', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
+    Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  /* Subtle modern background */
+  background:
+    radial-gradient(1200px 600px at 15% 10%, rgba(14, 165, 166, .14), transparent 60%),
+    radial-gradient(1000px 600px at 85% 20%, rgba(11, 18, 32, .10), transparent 55%),
+    linear-gradient(180deg, #f6f8fb, #ffffff);
+}
+
+code {
+  font-family: 'JetBrains Mono', source-code-pro, Menlo, Monaco, Consolas, "Courier New", monospace;
+}
+
+/* Premium heading feel */
+h1,
+h2,
+h3 {
+  font-family: 'Playfair Display', serif;
+  letter-spacing: -0.02em;
+}
+
+/* -------------------------------------------------------
+   Theme Tokens (shadcn style variables) - Navy + Teal
+   These drive button colors, borders, focus rings, etc.
+-------------------------------------------------------- */
+@layer base {
+  :root {
+    /* Background & text */
+    --background: 210 33% 98%;
+    --foreground: 222 47% 11%;
+
+    /* Surfaces */
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    /* Brand */
+    --primary: 222 47% 11%;
+    /* Navy */
+    --primary-foreground: 210 40% 98%;
+
+    --secondary: 182 74% 33%;
+    /* Teal */
+    --secondary-foreground: 210 40% 98%;
+
+    --accent: 182 74% 33%;
+    /* Teal accent */
+    --accent-foreground: 210 40% 98%;
+
+    /* Muted */
+    --muted: 214 32% 92%;
+    --muted-foreground: 215 16% 45%;
+
+    /* Status */
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+
+    /* Inputs & outlines */
+    --border: 214 32% 88%;
+    --input: 214 32% 88%;
+    --ring: 182 74% 33%;
+    /* Teal focus ring */
+
+    /* Shape */
+    --radius: 0.85rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* -------------------------------------------------------
+   Utility fonts
+-------------------------------------------------------- */
+@layer utilities {
+  .font-display {
+    font-family: 'Playfair Display', serif;
+  }
+
+  .font-mono-data {
+    font-family: 'JetBrains Mono', monospace;
+  }
+}
+
+/* -------------------------------------------------------
+   Modern UI polish (works across your app automatically)
+-------------------------------------------------------- */
+
+/* Links: Navy → Teal hover */
+a {
+  color: hsl(var(--foreground));
+  text-decoration: none;
+  transition: color .15s ease, opacity .15s ease;
+}
+
+a:hover {
+  color: hsl(var(--accent));
+}
+
+/* Selection highlight */
+::selection {
+  background: rgba(14, 165, 166, .22);
+}
+
+/* Card-like surfaces (if components don’t already style them) */
+.kb-surface {
+  background: rgba(255, 255, 255, .78);
+  border: 1px solid rgba(230, 234, 242, .9);
+  border-radius: 18px;
+  box-shadow: 0 12px 30px rgba(11, 18, 32, .10), 0 3px 10px rgba(11, 18, 32, .06);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+
+/* Buttons fallback styling if any plain <button> exists */
+button {
+  font-family: inherit;
+}
+
+/* Inputs fallback styling if any plain inputs exist */
+input,
+select,
+textarea {
+  font-family: inherit;
+  outline: none;
+}
+
+/* Smooth focus ring (teal) */
+:focus-visible {
+  outline: 3px solid rgba(14, 165, 166, .35);
+  outline-offset: 2px;
+  border-radius: 10px;
+}
+
+/* -------------------------------------------------------
+   Print Styles (keep certificates clean)
+-------------------------------------------------------- */
+@media print {
+
+  /* keep certificate within page width */
+  .certificate-page,
+  .certificate-container,
+  .certificate-wrapper {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  /* table must wrap and shrink */
+  table {
+    width: 100% !important;
+    table-layout: fixed !important;
+    border-collapse: collapse !important;
+  }
+
+  th,
+  td {
+    word-wrap: break-word !important;
+    overflow-wrap: anywhere !important;
+    font-size: 10px !important;
+    /* shrink text for print */
+    padding: 6px !important;
+  }
+
+  /* prevent the table splitting badly */
+  thead {
+    display: table-header-group;
+  }
+
+  tfoot {
+    display: table-footer-group;
+  }
+
+  tr {
+    page-break-inside: avoid;
+  }
+
+  /* scale down only the certificate section */
+  .print-scale {
+    transform: scale(0.92);
+    transform-origin: top left;
+  }
+}
