@@ -1071,6 +1071,7 @@ app = FastAPI(
     docs_url="/docs" if ENABLE_API_DOCS else None,
     redoc_url="/redoc" if ENABLE_API_DOCS else None,
     openapi_url="/openapi.json" if ENABLE_API_DOCS else None,
+    redirect_slashes=False,
 )
 api_router = APIRouter(prefix="/api")
 
@@ -1149,6 +1150,7 @@ async def get_ca_settings(request: Request):
 # Auth endpoints
 # -----------------------------
 @api_router.post("/auth/login", response_model=AuthLoginResponse)
+@api_router.post("/auth/login/", response_model=AuthLoginResponse)
 async def auth_login(payload: AuthLoginRequest, request: Request):
     email = (payload.email or payload.username or "").strip().lower()
     if not email:
