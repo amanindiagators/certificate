@@ -21,7 +21,7 @@ class User(Base):
     temporary_accesses = relationship("TemporaryAccess", back_populates="user", cascade="all, delete-orphan")
     sessions = relationship("Session", back_populates="user", cascade="all, delete-orphan")
     history = relationship("History", back_populates="user", cascade="all, delete-orphan")
-    certificates = relationship("Certificate", back_populates="user", cascade="all, delete-orphan")
+    certificates = relationship("Certificate", back_populates="user")
 
 class TemporaryAccess(Base):
     __tablename__ = "temporary_access"
@@ -67,7 +67,7 @@ class Certificate(Base):
     __tablename__ = "certificates"
 
     id = Column(String, primary_key=True)
-    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     category = Column(String, nullable=False, index=True)
     certificate_type = Column(String, nullable=False, index=True)
     entity_type = Column(String, nullable=False)
