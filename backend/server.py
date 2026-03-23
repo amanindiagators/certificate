@@ -21,8 +21,12 @@ from typing import Any, Dict, List, Optional, Literal, Callable, Union, Tuple
 from pydantic import BaseModel, Field, ConfigDict
 from fastapi.responses import Response
 from sqlalchemy.orm import Session as DBSession
-from database import engine, SessionLocal, get_db
-from models import User, Certificate, History, Session as SessionModel, TemporaryAccess, OfficeLocation
+try:
+    from .database import engine, SessionLocal, get_db
+    from .models import User, Certificate, History, Session as SessionModel, TemporaryAccess, OfficeLocation
+except ImportError:
+    from database import engine, SessionLocal, get_db
+    from models import User, Certificate, History, Session as SessionModel, TemporaryAccess, OfficeLocation
 from sqlalchemy import text, inspect
 from docx import Document
 from docx.shared import Pt, RGBColor, Inches
@@ -281,7 +285,7 @@ LOGIN_RATE_LIMIT_WINDOW_SEC = _env_int("LOGIN_RATE_LIMIT_WINDOW_SEC", 300, 1)
 LOGIN_RATE_LIMIT_LOCKOUT_SEC = _env_int("LOGIN_RATE_LIMIT_LOCKOUT_SEC", 900, 1)
 FORCE_HTTPS = _env_bool("FORCE_HTTPS", IS_PRODUCTION)
 ENABLE_API_DOCS = _env_bool("ENABLE_API_DOCS", not IS_PRODUCTION)
-_login_attempts: Dict[str, deque] = defaultdict(deque)
+_login_attempts: Dict[str, deque[datetime]] = defaultdict(deque)
 _login_lockouts: Dict[str, datetime] = {}
 _login_rate_limit_lock = Lock()
 CORS_ALLOW_ORIGINS = _parse_cors_origins()
@@ -292,45 +296,45 @@ TRUSTED_ALLOWED_HOSTS = _parse_allowed_hosts()
 # ------------------------------------------------------------------
 # Session token cache: token -> (user_dict, session_dict, cached_at)
 _SESSION_CACHE_TTL_SEC = 60
-_session_cache = {}
+_session_cache: Dict[str, Tuple[Dict[str, Any], Dict[str, Any], datetime]] = {}
 _session_cache_lock = Lock()
 
 # Office location cache: (locations_list, cached_at)
 _OFFICE_CACHE_TTL_SEC = 60
-_office_cache = None
+_office_cache: Optional[Tuple[List[Dict[str, Any]], datetime]] = None
 _office_cache_lock = Lock()
 
-def _get_cached_session(token):
+def _get_cached_session(token: str) -> Optional[Tuple[Dict[str, Any], Dict[str, Any]]]:
     """Return (user, session) from cache if still valid."""
     with _session_cache_lock:
         entry = _session_cache.get(token)
         if not entry:
             return None
-        user, session, cached_at = entry
-        if (datetime.now(timezone.utc) - cached_at).total_seconds() > _SESSION_CACHE_TTL_SEC:
+        u_dict, s_dict, c_at = entry
+        if (datetime.now(timezone.utc) - c_at).total_seconds() > _SESSION_CACHE_TTL_SEC:
             _session_cache.pop(token, None)
             return None
-        return user, session
+        return u_dict, s_dict
 
-def _put_cached_session(token, user, session):
+def _put_cached_session(token: str, user: Dict[str, Any], session: Dict[str, Any]) -> None:
     with _session_cache_lock:
         if len(_session_cache) > 500:
-            oldest = sorted(_session_cache.items(), key=lambda x: x[1][2])[:100]
-            for k, _ in oldest:
+            keys = sorted(_session_cache.keys(), key=lambda k: _session_cache[k][2])
+            for k in keys[:100]:
                 _session_cache.pop(k, None)
         _session_cache[token] = (user, session, datetime.now(timezone.utc))
 
-def _invalidate_cached_session(token):
+def _invalidate_cached_session(token: str) -> None:
     with _session_cache_lock:
         _session_cache.pop(token, None)
 
-def _invalidate_cached_sessions_for_user(user_id):
+def _invalidate_cached_sessions_for_user(user_id: str) -> None:
     with _session_cache_lock:
         to_remove = [k for k, v in _session_cache.items() if v[1].get("user_id") == user_id]
         for k in to_remove:
             _session_cache.pop(k, None)
 
-def _get_office_locations_cached():
+def _get_office_locations_cached() -> List[Dict[str, Any]]:
     """Return office locations from in-memory cache (max 60s stale)."""
     global _office_cache
     with _office_cache_lock:
@@ -338,7 +342,7 @@ def _get_office_locations_cached():
             locations, cached_at = _office_cache
             if (datetime.now(timezone.utc) - cached_at).total_seconds() <= _OFFICE_CACHE_TTL_SEC:
                 return locations
-        locations = _get_office_locations_cached()
+        locations = _get_office_locations()
         _office_cache = (locations, datetime.now(timezone.utc))
         return locations
 
@@ -994,7 +998,7 @@ def _revoke_sessions_for_access(access_id: str) -> None:
     with _db() as db:
         db.query(SessionModel).filter(SessionModel.temp_access_id == access_id).update({"is_revoked": 1})
 
-def # Pruned in background -> None:
+def _prune_expired_sessions() -> None:
     with _db() as db:
         db.query(SessionModel).filter(SessionModel.expires_at <= _now().isoformat()).delete()
 
@@ -1014,7 +1018,7 @@ def _login_rate_limit_key(email: str, request: Request) -> str:
     ip = _get_client_ip(request) or "unknown"
     return f"{email}|{ip}"
 
-def _trim_login_attempts(attempts: deque, now: datetime) -> None:
+def _trim_login_attempts(attempts: deque[datetime], now: datetime) -> None:
     window_start = now - timedelta(seconds=LOGIN_RATE_LIMIT_WINDOW_SEC)
     while attempts and attempts[0] < window_start:
         attempts.popleft()
@@ -1032,7 +1036,7 @@ def _enforce_login_rate_limit(key: str) -> None:
         if lock_until and lock_until <= now:
             _login_lockouts.pop(key, None)
 
-        attempts = _login_attempts.get(key, deque())
+        attempts = _login_attempts.get(key, deque[datetime]())
         _login_attempts[key] = attempts # Ensure deque exists for key
         _trim_login_attempts(attempts, now)
         if len(attempts) >= LOGIN_RATE_LIMIT_ATTEMPTS:
@@ -1047,7 +1051,7 @@ def _enforce_login_rate_limit(key: str) -> None:
 def _record_failed_login(key: str) -> None:
     now = _now()
     with _login_rate_limit_lock:
-        attempts = _login_attempts.get(key, deque())
+        attempts = _login_attempts.get(key, deque[datetime]())
         _login_attempts[key] = attempts # Ensure deque exists for key
         _trim_login_attempts(attempts, now)
         attempts.append(now)
@@ -1338,9 +1342,8 @@ async def startup_event():
     _init_db()
     await _ensure_admin_user()
     # Warmup caches and prune sessions in background, not blocking startup
-    loop = asyncio.get_event_loop()
-    loop.run_in_executor(None, _get_office_locations_cached)
-    loop.run_in_executor(None, _prune_expired_sessions)
+    asyncio.create_task(asyncio.to_thread(_get_office_locations_cached))
+    asyncio.create_task(asyncio.to_thread(_prune_expired_sessions))
 
 @app.middleware("http")
 async def auth_expiry_middleware(request: Request, call_next):
@@ -1469,8 +1472,7 @@ async def auth_login(payload: AuthLoginRequest, request: Request):
             raise HTTPException(status_code=401, detail="Invalid email or password.")
 
         if user.get("role") == "admin":
-            loop = asyncio.get_event_loop()
-            if not await loop.run_in_executor(None, _verify_password, payload.password, user.get("password_hash") or ""):
+            if not await asyncio.to_thread(_verify_password, payload.password, user.get("password_hash") or ""):
                 raise HTTPException(status_code=401, detail="Invalid email or password.")
 
             token_hours = int(os.getenv("TOKEN_TTL_HOURS", "12"))
@@ -1483,7 +1485,7 @@ async def auth_login(payload: AuthLoginRequest, request: Request):
             return AuthLoginResponse.model_validate(resp_dict)
 
         # Temporary user login: must match an active temp access entry
-        access, reason = _find_temp_access_for_login(user["id"], payload.password)
+        access, reason = await asyncio.to_thread(_find_temp_access_for_login, user["id"], payload.password)
         if not access:
             if reason == "revoked":
                 raise HTTPException(status_code=401, detail="Credentials have been revoked.")
@@ -1582,7 +1584,8 @@ async def create_temp_credential(payload: TempCredentialCreate, request: Request
         raise HTTPException(status_code=500, detail="User could not be resolved.")
     
     admin_id = str(admin.get("id") or "")
-    access = _create_temp_access(user["id"], _hash_password(password), expires_at, admin_id)
+    hashed = await asyncio.to_thread(_hash_password, password)
+    access = _create_temp_access(user["id"], hashed, expires_at, admin_id)
     _log_history(user["id"], "TEMP_ACCESS_CREATED", {"email": email, "expires_at": expires_at})
     _log_history(admin["id"], "ADMIN_CREATED_TEMP_ACCESS", {"email": email, "access_id": access["id"]})
 
