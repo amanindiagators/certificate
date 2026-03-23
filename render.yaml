@@ -1,9 +1,0 @@
-services:
-  - type: web
-    name: certificate-frontend
-    runtime: static
-    buildCommand: npm run build
-    staticPublishPath: frontend-app/build
-    routes:
-      - src: /*
-        dest: /index.html

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Query, Body, Request
+from fastapi import FastAPI, APIRouter, HTTPException, Query, Body, Request, File, UploadFile
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
@@ -22,12 +22,157 @@ from fastapi.responses import Response
 from sqlalchemy.orm import Session as DBSession
 from database import engine, SessionLocal, get_db
 from models import User, Certificate, History, Session as SessionModel, TemporaryAccess, OfficeLocation
-from sqlalchemy import text
+from sqlalchemy import text, inspect
+from docx import Document
+from docx.shared import Pt, RGBColor, Inches
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml.ns import qn
+from docx.oxml import OxmlElement
+from io import BytesIO
+
 # -----------------------------
 # Env + storage
 # -----------------------------
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env", override=False)
+
+PURPOSE_TEXT_FV = {
+    "allotment": (
+        "allotment of shares under Section 56(2)(x) of the Income Tax Act, 1961 read with "
+        "Rule 11UA of the Income Tax Rules, 1962, and as required under applicable provisions "
+        "of the Companies Act, 2013"
+    ),
+    "buyback": (
+        "buy-back of shares under Section 68 of the Companies Act, 2013 and the Companies "
+        "(Share Capital and Debentures) Rules, 2014"
+    ),
+    "merger": (
+        "Merger / De-merger under Sections 230-232 of the Companies Act, 2013 and as may be "
+        "required by the National Company Law Tribunal (NCLT)"
+    ),
+    "rtor": (
+        "transfer of shares from a Resident to a Non-Resident under the Foreign Exchange "
+        "Management Act, 1999 (FEMA) and the Foreign Exchange Management (Non-Debt Instruments) "
+        "Rules, 2019, as per the pricing guidelines of the Reserve Bank of India"
+    ),
+    "form3ceb": (
+        "reporting of international transactions at Arm's Length Price under Section 92 of the "
+        "Income Tax Act, 1961, as required to be certified in Form 3CEB"
+    ),
+}
+
+def generate_lod_docx(data: dict) -> bytes:
+    doc = Document()
+    section = doc.sections[0]
+    section.top_margin = Inches(1.0)
+    section.bottom_margin = Inches(1.0)
+    section.left_margin = Inches(1.0)
+    section.right_margin = Inches(1.0)
+
+    def add_para(text="", bold=False, size=11, align=WD_ALIGN_PARAGRAPH.LEFT,
+                 underline=False, space_before=0, space_after=6):
+        p = doc.add_paragraph()
+        p.alignment = align
+        p.paragraph_format.space_before = Pt(space_before)
+        p.paragraph_format.space_after  = Pt(space_after)
+        if text:
+            run = p.add_run(text)
+            run.bold      = bold
+            run.underline = underline
+            run.font.size = Pt(size)
+        return p
+
+    # --- Header ---
+    add_para("TO WHOM SO EVER IT MAY CONCERN", bold=True, underline=True,
+             align=WD_ALIGN_PARAGRAPH.CENTER, size=12, space_before=18, space_after=18)
+
+    # Para 1
+    company_name = data.get("company_name", "")
+    cin = data.get("cin", "")
+    address = data.get("registered_address", "")
+    
+    p1 = doc.add_paragraph()
+    p1.paragraph_format.space_after = Pt(12)
+    p1.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+    r = p1.add_run("This is to certify that the company M/s ")
+    r.font.size = Pt(11)
+    r_name = p1.add_run(company_name)
+    r_name.font.size = Pt(11)
+    r_name.bold = True
+    r2 = p1.add_run(" (CIN-")
+    r2.font.size = Pt(11)
+    r_cin = p1.add_run(cin)
+    r_cin.font.size = Pt(11)
+    r_cin.bold = True
+    r3 = p1.add_run(f"), registered at {address}.")
+    r3.font.size = Pt(11)
+
+    # Para 2
+    as_on_date = data.get("as_on_date", "")
+    p2 = doc.add_paragraph()
+    p2.paragraph_format.space_after = Pt(12)
+    p2.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+    r_p2a = p2.add_run("As per the records and information available on the website of the Ministry of Corporate Affairs (MCA) and based on the Annual Filing status of the Company, the ")
+    r_p2a.font.size = Pt(11)
+    r_p2b = p2.add_run("List of Director")
+    r_p2b.bold = True
+    r_p2b.font.size = Pt(11)
+    r_p2c = p2.add_run(" of the Company as on ")
+    r_p2c.font.size = Pt(11)
+    r_p2d = p2.add_run(as_on_date)
+    r_p2d.bold = True
+    r_p2d.font.size = Pt(11)
+    r_p2e = p2.add_run(" is as under:")
+    r_p2e.font.size = Pt(11)
+
+    # Table
+    directors = data.get("directors", [])
+    if directors:
+        table = doc.add_table(rows=1, cols=5)
+        table.style = 'Table Grid'
+        table.autofit = False
+        widths = (Inches(0.6), Inches(2.2), Inches(1.2), Inches(1.5), Inches(1.0))
+        for i, width in enumerate(widths):
+            table.columns[i].width = width
+        
+        hdr_cells = table.rows[0].cells
+        headers = ["Sr.\nNo", "Name of Directors", "DIN", "Designation", "Date of\nAppointment"]
+        for i, h in enumerate(headers):
+            p = hdr_cells[i].paragraphs[0]
+            p.text = h
+            p.runs[0].bold = True
+            p.runs[0].font.size = Pt(11)
+        
+        for d in directors:
+            row = table.add_row().cells
+            row[0].text = str(d.get("sr_no", ""))
+            row[1].text = d.get("name", "")
+            row[2].text = d.get("din", "")
+            row[3].text = d.get("designation", "")
+            row[4].text = d.get("date_of_appointment", "")
+            
+        doc.add_paragraph() # spacing
+
+    # Para 3
+    add_para("This certificate is issued on the basis of the records and documents produced before us and information available on the MCA portal.", size=11, space_after=12)
+
+    # Para 4
+    add_para("This certificate is issued at the specific request of the Company for submission to the Bank loan purpose only and shall not be used for any other purpose without our prior written consent.", size=11, space_after=36)
+
+    # Footer
+    add_para(f"For {data.get('caFirm', '')}", bold=True, size=11, space_after=2)
+    add_para("(Chartered Accountants)", bold=True, size=11, space_after=2)
+    add_para(f"F. R. No. {data.get('frn', '')}", bold=True, size=11, space_after=64)
+    add_para(f"(CA {data.get('caName', '')})", bold=True, size=11, space_after=2)
+    add_para("(Partner)", bold=True, size=11, space_after=2)
+    add_para(f"Membership No: {data.get('membershipNo', '')}", bold=True, size=11, space_after=2)
+    add_para(f"UDIN: {data.get('udin', '')}", bold=True, size=11, space_after=0)
+
+    buf = BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    return buf.read()
+
 
 ENVIRONMENT = (os.getenv("ENVIRONMENT") or "development").strip().lower()
 IS_PRODUCTION = ENVIRONMENT in {"prod", "production"}
@@ -66,6 +211,7 @@ CertCategory = Literal[
     "RERA",
     "NBFC",
     "GST",
+    "LIST_OF_DIRECTORS",
 ]
 
 def _now() -> datetime:
@@ -185,6 +331,28 @@ def _init_db() -> None:
     # Logic moved to Alembic, but we can keep create_all for safety in dev
     from database import Base
     Base.metadata.create_all(bind=engine)
+    inspector = inspect(engine)
+
+    # Development safety net: add columns introduced after initial migrations.
+    # create_all() does not alter existing tables.
+    if not inspector.has_table("history"):
+        return
+
+    history_columns = {col["name"] for col in inspector.get_columns("history")}
+    certificates_columns = {col["name"] for col in inspector.get_columns("certificates")} if inspector.has_table("certificates") else set()
+
+    with engine.begin() as conn:
+        if "user_email" not in history_columns:
+            conn.execute(text("ALTER TABLE history ADD COLUMN user_email VARCHAR"))
+        if "created_by_info" not in certificates_columns:
+            conn.execute(text("ALTER TABLE certificates ADD COLUMN created_by_info VARCHAR"))
+        
+        # SQLite doesn't support IF NOT EXISTS in CREATE INDEX for some versions 
+        # or it might already exist. We try for safety.
+        try:
+            conn.execute(text("CREATE INDEX ix_history_user_email ON history (user_email)"))
+        except Exception:
+            pass
 
 
 
@@ -541,6 +709,16 @@ def validate_nbfc(payload: UniversalCertificateCreate) -> Optional[str]:
 
     return None
 
+def validate_lod(payload: UniversalCertificateCreate) -> Optional[str]:
+    data = payload.data.extras or {}
+    if _is_blank(payload.identity.cin):
+        return "CIN is required for List of Directors."
+    if _is_blank(data.get("as_on_date")):
+        return "As on Date is required for List of Directors."
+    if not data.get("directors") or not isinstance(data.get("directors"), list):
+        return "At least one director must be listed."
+    return None
+
 
 CATEGORY_VALIDATORS: Dict[str, Callable[[UniversalCertificateCreate], Optional[str]]] = {
     "TURNOVER": validate_turnover,
@@ -548,6 +726,7 @@ CATEGORY_VALIDATORS: Dict[str, Callable[[UniversalCertificateCreate], Optional[s
     "UTILISATION": validate_utilisation,
     "RERA": validate_rera,
     "NBFC": validate_nbfc,
+    "LIST_OF_DIRECTORS": validate_lod,
 }
 
 # -----------------------------
@@ -572,10 +751,15 @@ def _sanitize_user(user: Dict[str, Any]) -> Dict[str, Any]:
     return safe
 
 def _log_history(user_id: str, action_type: str, action_data: Optional[Dict[str, Any]] = None) -> None:
+    # Try to find user email for the snapshot
     with _db() as db:
+        user = db.query(User).filter(User.id == user_id).first()
+        email_snapshot = user.email if user else "deleted-user"
+        
         history = History(
             id=str(uuid4()),
             user_id=user_id,
+            user_email=email_snapshot,
             action_type=action_type,
             action_data=json.dumps(action_data or {}, ensure_ascii=False, default=str),
             timestamp=_now().isoformat()
@@ -785,7 +969,8 @@ def _enforce_login_rate_limit(key: str) -> None:
         if lock_until and lock_until <= now:
             _login_lockouts.pop(key, None)
 
-        attempts = _login_attempts[key]
+        attempts = _login_attempts.get(key, deque())
+        _login_attempts[key] = attempts # Ensure deque exists for key
         _trim_login_attempts(attempts, now)
         if len(attempts) >= LOGIN_RATE_LIMIT_ATTEMPTS:
             lock_until = now + timedelta(seconds=LOGIN_RATE_LIMIT_LOCKOUT_SEC)
@@ -799,7 +984,8 @@ def _enforce_login_rate_limit(key: str) -> None:
 def _record_failed_login(key: str) -> None:
     now = _now()
     with _login_rate_limit_lock:
-        attempts = _login_attempts[key]
+        attempts = _login_attempts.get(key, deque())
+        _login_attempts[key] = attempts # Ensure deque exists for key
         _trim_login_attempts(attempts, now)
         attempts.append(now)
         if len(attempts) >= LOGIN_RATE_LIMIT_ATTEMPTS:
@@ -859,8 +1045,6 @@ def _default_plus_code_reference() -> Optional[Tuple[float, float]]:
     # Second fallback: first saved office with geo
     for _, lat, lng, _ in _get_office_geos():
         return lat, lng
-
-    return None
 
 def _decode_plus_code_to_lat_lng(
     plus_code_input: str,
@@ -1131,6 +1315,48 @@ async def health_check():
     if health["status"] == "unhealthy":
         raise HTTPException(status_code=503, detail=health)
     return health
+
+
+
+@api_router.get("/certificates/generate-docx/{cert_id}")
+async def generate_cert_docx(cert_id: str, request: Request):
+    user = await require_user(request)
+    with _db() as db:
+        cert_row = db.query(Certificate).filter(Certificate.id == cert_id).first()
+        if not cert_row:
+            raise HTTPException(status_code=404, detail="Certificate not found")
+        
+        if user.get("role") != "admin" and cert_row.user_id != user["id"]:
+            raise HTTPException(status_code=403, detail="Forbidden")
+        
+        cert_data = json.loads(cert_row.payload_json)
+        category = cert_data.get("category")
+        
+        if category in ("FAIR_VALUE_SHARES", "LIST_OF_DIRECTORS"):
+            # Flatten data for generator
+            gen_data = {
+                **cert_data.get("identity", {}),
+                **cert_data.get("meta", {}),
+                **cert_data.get("ca", {}),
+                **cert_data.get("data", {}).get("extras", {}),
+                "directors": cert_data.get("data", {}).get("extras", {}).get("directors", []),
+                "certificate_date": cert_data.get("meta", {}).get("date"),
+                "certificate_place": cert_data.get("meta", {}).get("place"),
+                "firm_name": cert_data.get("ca", {}).get("firm"),
+                "firm_frn": cert_data.get("ca", {}).get("frn"),
+                "ca_name": cert_data.get("ca", {}).get("name"),
+                "ca_membership_no": cert_data.get("ca", {}).get("membership_no"),
+            }
+            docx_bytes = generate_lod_docx(gen_data)
+            
+            filename = f"LOD_Certificate_{cert_id}.docx"
+            return Response(
+                content=docx_bytes,
+                media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                headers={"Content-Disposition": f"attachment; filename={filename}"}
+            )
+        else:
+            raise HTTPException(status_code=400, detail="DOCX generation not implemented for this category yet.")
 
 @api_router.get("/ca-settings")
 async def get_ca_settings(request: Request):
@@ -1573,6 +1799,7 @@ async def create_certificate(payload: UniversalCertificateCreate, request: Reque
     cert_obj = Certificate(
         id=stored["id"],
         user_id=user["id"],
+        created_by_info=user.get("email") or "system",
         category=stored["category"],
         certificate_type=stored["certificate_type"],
         entity_type=stored["entityType"],

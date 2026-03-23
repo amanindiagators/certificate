@@ -1,0 +1,9 @@
+{
+  "source_directories": [
+    "backend"
+  ],
+  "search_path": [
+    "backend",
+    "C:/Users/amani/AppData/Local/Python/pythoncore-3.14-64/Lib/site-packages"
+  ]
+}

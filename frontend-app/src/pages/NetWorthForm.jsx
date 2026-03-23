@@ -1010,7 +1010,7 @@ export default function NetWorthForm() {
           </div>
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-[3fr_2fr]">
+        <div className="grid gap-6 lg:grid-cols-[55%_45%]">
           {/* FORM */}
           <div className="bg-card border border-border rounded-xl shadow-sm p-8">
             <h1 className="text-3xl font-display font-bold text-foreground mb-2">

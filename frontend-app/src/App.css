@@ -13,6 +13,7 @@
 .certificate-wrapper {
   position: relative;
   width: 210mm;
+  min-height: auto;
   min-height: 297mm;
   /* looks like at least 1 A4 */
   height: auto;
@@ -62,6 +63,7 @@
   /* ✅ avoid flex-page tricks for print flow */
   height: auto;
   /* ✅ allow multi-page growth */
+  min-height: auto;
   min-height: 297mm;
 
   /* Reserve header/footer space */
@@ -388,6 +390,9 @@
     /* side margins only */
     margin: 0 !important;
     width: 100% !important;
+    /* ✅ CRITICAL: Remove min-height so content-short certs don't create a blank second page */
+    min-height: 0 !important;
+    height: auto !important;
     box-sizing: border-box !important;
     display: block !important;
   }

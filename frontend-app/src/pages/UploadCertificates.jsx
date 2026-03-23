@@ -25,7 +25,8 @@ const ENTITY_TYPES = [
   { key: "GOVERNMENT", label: "Government / PSU / Department" },
 ];
 
-function getDefaultCASettings() {
+function getDefaultCASettings()
+{
   return {
     place: "Patna",
     firm_name: "P. Jyoti & Co.",
@@ -35,7 +36,8 @@ function getDefaultCASettings() {
   };
 }
 
-function loadCASettingsLocal() {
+function loadCASettingsLocal()
+{
   try {
     const raw = localStorage.getItem(CA_STORAGE_KEY);
     if (!raw) return getDefaultCASettings();
@@ -46,7 +48,8 @@ function loadCASettingsLocal() {
   }
 }
 
-function todayDDMMYYYY() {
+function todayDDMMYYYY()
+{
   const d = new Date();
   const dd = String(d.getDate()).padStart(2, "0");
   const mm = String(d.getMonth() + 1).padStart(2, "0");
@@ -54,7 +57,8 @@ function todayDDMMYYYY() {
   return `${dd}-${mm}-${yyyy}`;
 }
 
-function autoFormatDDMMYYYY(value) {
+function autoFormatDDMMYYYY(value)
+{
   // Remove everything except digits
   let v = String(value || "").replace(/\D/g, "");
 
@@ -69,17 +73,20 @@ function autoFormatDDMMYYYY(value) {
   return v;
 }
 
-function cleanText(value) {
+function cleanText(value)
+{
   const text = String(value ?? "").replace(/\s+/g, " ").trim();
   if (text.toLowerCase() === "nan") return "";
   return text;
 }
 
-function rowText(row = []) {
+function rowText(row = [])
+{
   return row.map((v) => cleanText(v)).filter(Boolean).join(" ").trim();
 }
 
-function parseAmount(value) {
+function parseAmount(value)
+{
   if (value === null || value === undefined || typeof value === "boolean") return null;
   if (typeof value === "number") {
     if (Number.isNaN(value) || !Number.isFinite(value)) return null;
@@ -107,21 +114,25 @@ function parseAmount(value) {
   return negative ? -num : num;
 }
 
-function formatAmount(value) {
+function formatAmount(value)
+{
   const out = Number(value).toLocaleString("en-IN", { maximumFractionDigits: 2, minimumFractionDigits: 2 });
   return out.endsWith(".00") ? out.slice(0, -3) : out;
 }
 
-function fyFromMarchYear(year) {
+function fyFromMarchYear(year)
+{
   return `${year - 1}-${String(year).slice(-2)}`;
 }
 
-function fySortKey(fy) {
+function fySortKey(fy)
+{
   const m = String(fy || "").match(/^(\d{4})-(\d{2}|\d{4})$/);
   return m ? Number(m[1]) : 999999;
 }
 
-function inferEntityType(companyName) {
+function inferEntityType(companyName)
+{
   const name = String(companyName || "").toUpperCase();
   if (name.includes("PRIVATE LIMITED")) return "PRIVATE_LIMITED";
   if (name.includes("LIMITED")) return "PUBLIC_LIMITED";
@@ -132,7 +143,8 @@ function inferEntityType(companyName) {
   return "PROPRIETORSHIP";
 }
 
-function inferPurpose(text) {
+function inferPurpose(text)
+{
   const t = String(text || "").toLowerCase();
   if (t.includes("statement of profit") || t.includes("profit & loss") || t.includes("profit and loss")) {
     return "Financial Statement Filing";
@@ -142,7 +154,8 @@ function inferPurpose(text) {
   return "Not specified";
 }
 
-function findClosestYearForCol(col, colYearMap) {
+function findClosestYearForCol(col, colYearMap)
+{
   if (Object.prototype.hasOwnProperty.call(colYearMap, col)) return colYearMap[col];
   const entries = Object.entries(colYearMap);
   if (!entries.length) return null;
@@ -155,7 +168,8 @@ function findClosestYearForCol(col, colYearMap) {
   return best && best.dist <= 3 ? best.year : null;
 }
 
-function extractFromMatrix(matrix, fileName) {
+function extractFromMatrix(matrix, fileName)
+{
   const rows = Array.isArray(matrix) ? matrix : [];
   const rowCount = rows.length;
   const firstSix = rows.slice(0, 6);
@@ -281,17 +295,20 @@ function extractFromMatrix(matrix, fileName) {
   };
 }
 
-function pickWorksheet(workbook) {
+function pickWorksheet(workbook)
+{
   const names = workbook.SheetNames || [];
   if (!names.length) return null;
-  const preferred = names.find((n) => {
+  const preferred = names.find((n) =>
+  {
     const low = String(n || "").toLowerCase();
     return low.includes("pl") || low.includes("p&l") || low.includes("profit");
   });
   return preferred || names[0];
 }
 
-export default function UploadCertificates() {
+export default function UploadCertificates()
+{
   const navigate = useNavigate();
 
   const [files, setFiles] = useState([]);
@@ -318,10 +335,12 @@ export default function UploadCertificates() {
     turnoverRows: [],
   });
 
-  useEffect(() => {
+  useEffect(() =>
+  {
     const settings = loadCASettingsLocal();
     setCaSettings(settings);
-    setForm((prev) => {
+    setForm((prev) =>
+    {
       const next = {
         ...prev,
         place: settings.place || prev.place || "",
@@ -339,35 +358,41 @@ export default function UploadCertificates() {
     });
   }, []);
 
-  const onPickFiles = (e) => {
+  const onPickFiles = (e) =>
+  {
     setFiles(Array.from(e.target.files || []));
   };
 
   const update = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
 
-  const updateRow = (idx, key, value) => {
-    setForm((prev) => {
+  const updateRow = (idx, key, value) =>
+  {
+    setForm((prev) =>
+    {
       const nextRows = [...(prev.turnoverRows || [])];
       nextRows[idx] = { ...nextRows[idx], [key]: value };
       return { ...prev, turnoverRows: nextRows };
     });
   };
 
-  const addRow = () => {
+  const addRow = () =>
+  {
     setForm((prev) => ({
       ...prev,
       turnoverRows: [...(prev.turnoverRows || []), { fy: "", amount: "" }],
     }));
   };
 
-  const removeRow = (idx) => {
+  const removeRow = (idx) =>
+  {
     setForm((prev) => ({
       ...prev,
       turnoverRows: (prev.turnoverRows || []).filter((_, i) => i !== idx),
     }));
   };
 
-  const handleExtract = async () => {
+  const handleExtract = async () =>
+  {
     if (!files.length) {
       toast.error("Please select at least 1 Excel file (.xlsx/.xls)");
       return;
@@ -474,7 +499,8 @@ export default function UploadCertificates() {
     }
   };
 
-  const buildTurnoverPrefill = () => {
+  const buildTurnoverPrefill = () =>
+  {
     const entityType = form.entityType || "PROPRIETORSHIP";
     const displayName = String(form.displayName || "").trim();
     const base = {
@@ -505,7 +531,8 @@ export default function UploadCertificates() {
     return { ...base, entityName: displayName };
   };
 
-  const handleContinueToFullForm = () => {
+  const handleContinueToFullForm = () =>
+  {
     navigate("/turnover/new", {
       state: {
         turnoverPrefill: buildTurnoverPrefill(),
@@ -754,7 +781,8 @@ export default function UploadCertificates() {
                     <select
                       className="mt-2 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
                       value={form.caName || ""}
-                      onChange={(e) => {
+                      onChange={(e) =>
+                      {
                         const name = e.target.value;
                         const selected = (caSettings?.cas || []).find((c) => c.ca_name === name);
                         update("caName", selected?.ca_name || "");

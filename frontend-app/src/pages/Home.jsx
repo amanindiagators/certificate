@@ -244,6 +244,27 @@ const Home = () => {
             </div>
           </Link>
 
+          {/* --- LIST OF DIRECTORS CARD --- */}
+          <Link to="/fair-value" data-testid="fair-value-card-link">
+            <div className={`${cardBaseClass} hover:border-violet-500/70`}>
+              <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-violet-500 to-purple-400" />
+              <div className={cardBodyClass}>
+                <div className="mb-6 flex items-start justify-between gap-4">
+                  <h2 className="text-[2rem] font-display font-semibold leading-tight text-slate-900">List of Directors</h2>
+                  <div className="w-14 h-14 bg-violet-500/10 rounded-2xl flex items-center justify-center transition-transform duration-300 group-hover:scale-110">
+                    <FileText className="h-7 w-7 text-violet-600" />
+                  </div>
+                </div>
+                <p className="text-lg leading-relaxed text-slate-600">
+                  Extract and certify the list of directors from MCA Master Data for bank purposes and compliance.
+                </p>
+                <Button variant="outline" className={`${ctaButtonClass} hover:bg-violet-600 hover:text-white`}>
+                  Create Certification <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          </Link>
+
         </div>
       </div>
     </div>

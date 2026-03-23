@@ -49,6 +49,10 @@ const CATEGORY_META = {
     chip: "bg-rose-50 text-rose-700 border-rose-200",
     editRoute: null,
   },
+  LIST_OF_DIRECTORS: {
+    chip: "bg-violet-50 text-violet-700 border-violet-200",
+    editRoute: (id) => `/fair-value/${id}`,
+  },
 };
 
 const TYPE_CHIP_META = {
@@ -192,6 +196,7 @@ export default function History() {
     } else {
       const meta = CATEGORY_META[safeUpper(cert.category)];
       if (meta?.editRoute) navigate(meta.editRoute(cert.id));
+      else if (safeUpper(cert.category) === "LIST_OF_DIRECTORS") navigate(`/fair-value/${cert.id}`);
       else toast.error("Edit form is not available for this certificate type.");
     }
   };

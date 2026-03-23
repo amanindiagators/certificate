@@ -20,7 +20,7 @@ class User(Base):
 
     temporary_accesses = relationship("TemporaryAccess", back_populates="user", cascade="all, delete-orphan")
     sessions = relationship("Session", back_populates="user", cascade="all, delete-orphan")
-    history = relationship("History", back_populates="user", cascade="all, delete-orphan")
+    history = relationship("History", back_populates="user")
     certificates = relationship("Certificate", back_populates="user")
 
 class TemporaryAccess(Base):
@@ -56,7 +56,8 @@ class History(Base):
     __tablename__ = "history"
 
     id = Column(String, primary_key=True)
-    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    user_email = Column(String, index=True) # Snapshot for audit trail if user is deleted
     action_type = Column(String, nullable=False, index=True)
     action_data = Column(Text)
     timestamp = Column(String, default=_now_iso, nullable=False, index=True)
@@ -68,6 +69,7 @@ class Certificate(Base):
 
     id = Column(String, primary_key=True)
     user_id = Column(String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    created_by_info = Column(String) # Snapshot (e.g. 'admin@example.com') for audit if user is deleted
     category = Column(String, nullable=False, index=True)
     certificate_type = Column(String, nullable=False, index=True)
     entity_type = Column(String, nullable=False)

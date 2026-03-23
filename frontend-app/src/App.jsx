@@ -19,6 +19,7 @@ import UtilizationForm from "./pages/utilizationform";
 import { ReraForm } from "./pages/rera1";
 import RbiNbfcForm from "./pages/RbiNbfcForm";
 import LiquidAssets45IBForm from "./pages/LiquidAssets45IBForm";
+import FairValueCertificatePage from "./pages/FairValueCertificatePage";
 
 function App() {
   return (
@@ -59,6 +60,9 @@ function App() {
               <Route path="rbi-statutory-auditor/:id" element={<RbiNbfcForm />} />
               <Route path="rbi-liquid-assets" element={<LiquidAssets45IBForm />} />
               <Route path="rbi-liquid-assets/:id" element={<LiquidAssets45IBForm />} />
+
+              <Route path="fair-value" element={<FairValueCertificatePage />} />
+              <Route path="fair-value/:id" element={<FairValueCertificatePage />} />
 
               {/* Upload Excel */}
               <Route path="upload" element={<UploadCertificates />} />

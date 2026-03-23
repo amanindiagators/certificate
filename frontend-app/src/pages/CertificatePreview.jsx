@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import api from "../lib/api";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Printer, Pencil, Trash2 } from "lucide-react";
+import { ArrowLeft, Printer, Pencil, Trash2, FileText, FileSpreadsheet } from "lucide-react";
 import { toast } from "sonner";
 import { useReactToPrint } from "react-to-print";
 import React from "react";
@@ -5385,6 +5385,10 @@ export default function CertificatePreview() {
     return isRbiNbfc && isLiquidAssets45IBVariant(certificate);
   }, [certificate, isRbiNbfc]);
 
+  const isFairValue = useMemo(() => {
+    return certificate?.certificate_type === "FAIR_VALUE_SHARES";
+  }, [certificate]);
+
   const renderedCertificateView = isTurnover ? (
     <TurnoverCertificateView cert={certificate} />
   ) : isNetWorth ? (
@@ -5401,6 +5405,8 @@ export default function CertificatePreview() {
     <RbiNbfcCertificateView cert={certificate} />
   ) : isGstRefund ? (
     <GstRefundCertificateView cert={certificate} />
+  ) : isFairValue || certificate?.category === "LIST_OF_DIRECTORS" || certificate?.category === "LIST_OF_DIRECTORS" ? (
+    <ListOfDirectorsCertificateView cert={certificate} />
   ) : (
     <GenericUniversalCertificateView cert={certificate} />
   );
@@ -5444,7 +5450,26 @@ export default function CertificatePreview() {
     else if (isLiquidAssets45IB) navigate(`/rbi-liquid-assets/${id}`);
     else if (isRbiNbfc) navigate(`/rbi-statutory-auditor/${id}`);
     else if (isGstRefund) toast.error("GST refund form is no longer available for editing.");
+    else if (isFairValue || id.includes('list_of_directors') || certificate?.category === "LIST_OF_DIRECTORS") navigate(`/fair-value/${id}`);
     else navigate(`/certificate/edit/${id}`);
+  };
+
+  const handleDownloadDocx = async () => {
+    try {
+      const response = await api.get(`/api/certificates/generate-docx/${id}`, {
+        responseType: "blob",
+      });
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", `Fair_Value_Certificate_${id}.docx`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (e) {
+      console.error(e);
+      toast.error("Failed to download DOCX.");
+    }
   };
 
   if (loading) {
@@ -5491,6 +5516,13 @@ export default function CertificatePreview() {
               <Printer className="h-4 w-4 mr-2" />
               Print
             </Button>
+
+            {(isFairValue || certificate?.category === "LIST_OF_DIRECTORS") && (
+               <Button variant="outline" onClick={handleDownloadDocx}>
+               <FileSpreadsheet className="h-4 w-4 mr-2" />
+               Download DOCX
+             </Button>
+            )}
 
             {canManageCertificates && (
               <Button onClick={handleEdit}>
@@ -5548,6 +5580,93 @@ export default function CertificatePreview() {
             </table>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/** ---------- List of Directors Certificate Renderer ---------- */
+function ListOfDirectorsCertificateView({ cert }) {
+  const data = cert?.data?.extras || {};
+  const identity = cert?.identity || {};
+  const meta = cert?.meta || {};
+  const ca = cert?.ca || {};
+
+  const directors = data.directors || [];
+
+  return (
+    <div className="preview-container" style={{ fontFamily: "'Times New Roman', serif" }}>
+      <div className="certificate-subtitle underline uppercase tracking-widest mb-8">
+        TO WHOM SO EVER IT MAY CONCERN
+      </div>
+
+      <div className="certificate-body space-y-6">
+        <p>
+          This is to certify that the company M/s <span className="font-bold">{identity.company_name || "COMPANY NAME"}</span> (CIN- <span className="font-bold">{identity.cin || "CIN"}</span>), registered at {identity.address || "Registered Address"}.
+        </p>
+        <p>
+          As per the records and information available on the website of the Ministry of Corporate Affairs (MCA) and based on the Annual Filing status of the Company, the <span className="font-bold">List of Director</span> of the Company as on <span className="font-bold">{data.as_on_date || meta.date}</span> is as under:
+        </p>
+      </div>
+
+      <div className="mt-6 mb-6">
+        <table className="certificate-table">
+          <thead>
+            <tr>
+              <th className="col-sr">Sr.<br />No</th>
+              <th className="text-left">Name of Directors</th>
+              <th>DIN</th>
+              <th>Designation</th>
+              <th>Date of<br />Appointment</th>
+            </tr>
+          </thead>
+          <tbody>
+            {directors.map((d, i) => (
+              <tr key={i}>
+                <td className="col-sr">{d.sr_no || `${i + 1}.`}</td>
+                <td className="text-left">{d.name}</td>
+                <td>{d.din}</td>
+                <td>{d.designation}</td>
+                <td>{d.date_of_appointment}</td>
+              </tr>
+            ))}
+            {directors.length === 0 && (
+              <tr>
+                <td colSpan="5">No directors listed.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="certificate-body mt-4 space-y-5">
+        <p>
+          This certificate is issued on the basis of the records and documents produced before us and information available on the MCA portal.
+        </p>
+        <p>
+          This certificate is issued at the specific request of the Company for submission to the {meta.purpose || "__________________"}
+        </p>
+      </div>
+
+      {/* Professional Signature Footer - using global CSS */}
+      <div className="certificate-signature mt-8 font-bold">
+        <div className="signature-left">
+           <div>Date: {meta.date}</div>
+           <div>Place: {meta.place}</div>
+        </div>
+        
+        <div className="signature-right">
+          <div>For {ca.firm || "CA FIRM"}</div>
+          <div className="mt-0.5 text-xs">(Chartered Accountants)</div>
+          <div>F. R. No. {ca.frn}</div>
+          
+          <div className="mt-8">
+            <div>CA {ca.name || "Partner Name"}</div>
+            <div>(Partner)</div>
+            <div>Membership No: {ca.membership_no}</div>
+            <div>UDIN: {ca.udin || ""}</div>
+          </div>
+        </div>
       </div>
     </div>
   );
