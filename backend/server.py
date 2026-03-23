@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Query, Body, Request, File, UploadFile
+from fastapi import FastAPI, BackgroundTasks, APIRouter, HTTPException, Query, Body, Request, File, UploadFile
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
@@ -12,7 +12,6 @@ from contextlib import contextmanager
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from threading import Lock
-from time import perf_counter
 import base64
 import hashlib
 import hmac
@@ -21,11 +20,8 @@ from uuid import uuid4
 from typing import Any, Dict, List, Optional, Literal, Callable, Union, Tuple
 from pydantic import BaseModel, Field, ConfigDict
 from fastapi.responses import Response
-from fastapi import BackgroundTasks
 from sqlalchemy.orm import Session as DBSession
 from database import engine, SessionLocal, get_db
-from models import User, Certificate, History, Session as SessionModel, TemporaryAccess, OfficeLocation
-from sqlalchemy import text, inspect
 from models import User, Certificate, History, Session as SessionModel, TemporaryAccess, OfficeLocation
 from sqlalchemy import text, inspect
 from docx import Document
@@ -34,9 +30,6 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 from io import BytesIO
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 # -----------------------------
 # Env + storage
@@ -299,61 +292,578 @@ TRUSTED_ALLOWED_HOSTS = _parse_allowed_hosts()
 # ------------------------------------------------------------------
 # Session token cache: token -> (user_dict, session_dict, cached_at)
 _SESSION_CACHE_TTL_SEC = 60
-_session_cache: Dict[str, Tuple[Dict[str, Any], Dict[str, Any], datetime]] = {}
+_session_cache = {}
 _session_cache_lock = Lock()
 
 # Office location cache: (locations_list, cached_at)
 _OFFICE_CACHE_TTL_SEC = 60
-_office_cache: Optional[Tuple[List[Dict[str, Any]], datetime]] = None
+_office_cache = None
 _office_cache_lock = Lock()
 
-def _get_cached_session(token: str) -> Optional[Tuple[Dict[str, Any], Dict[str, Any]]]:
-    \"\"\"Return (user, session) from cache if still valid.\"\"\"
+def _get_cached_session(token):
+    """Return (user, session) from cache if still valid."""
     with _session_cache_lock:
         entry = _session_cache.get(token)
         if not entry:
             return None
         user, session, cached_at = entry
-        if (_now() - cached_at).total_seconds() > _SESSION_CACHE_TTL_SEC:
+        if (datetime.now(timezone.utc) - cached_at).total_seconds() > _SESSION_CACHE_TTL_SEC:
             _session_cache.pop(token, None)
             return None
         return user, session
 
-def _put_cached_session(token: str, user: Dict[str, Any], session: Dict[str, Any]) -> None:
+def _put_cached_session(token, user, session):
     with _session_cache_lock:
         if len(_session_cache) > 500:
             oldest = sorted(_session_cache.items(), key=lambda x: x[1][2])[:100]
             for k, _ in oldest:
                 _session_cache.pop(k, None)
-        _session_cache[token] = (user, session, _now())
+        _session_cache[token] = (user, session, datetime.now(timezone.utc))
 
-def _invalidate_cached_session(token: str) -> None:
+def _invalidate_cached_session(token):
     with _session_cache_lock:
         _session_cache.pop(token, None)
 
-def _invalidate_cached_sessions_for_user(user_id: str) -> None:
+def _invalidate_cached_sessions_for_user(user_id):
     with _session_cache_lock:
         to_remove = [k for k, v in _session_cache.items() if v[1].get("user_id") == user_id]
         for k in to_remove:
             _session_cache.pop(k, None)
 
-def _get_office_locations_cached() -> List[Dict[str, Any]]:
-    \"\"\"Return office locations from in-memory cache (max 60s stale).\"\"\"
+def _get_office_locations_cached():
+    """Return office locations from in-memory cache (max 60s stale)."""
     global _office_cache
     with _office_cache_lock:
         if _office_cache is not None:
             locations, cached_at = _office_cache
-            if (_now() - cached_at).total_seconds() <= _OFFICE_CACHE_TTL_SEC:
+            if (datetime.now(timezone.utc) - cached_at).total_seconds() <= _OFFICE_CACHE_TTL_SEC:
                 return locations
-        locations = _get_office_locations()
-        _office_cache = (locations, _now())
+        locations = _get_office_locations_cached()
+        _office_cache = (locations, datetime.now(timezone.utc))
         return locations
 
-def _invalidate_office_cache() -> None:
+def _invalidate_office_cache():
     global _office_cache
     with _office_cache_lock:
         _office_cache = None
 
+
+def _validate_env():
+    if not IS_PRODUCTION:
+        return
+    
+    required = [
+        "JWT_SECRET",
+        "DATABASE_URL",
+        "ADMIN_EMAIL",
+        "ADMIN_PASSWORD",
+    ]
+    missing = [r for r in required if not os.getenv(r)]
+    if missing:
+        raise RuntimeError(f"Missing required production environment variables: {', '.join(missing)}")
+    
+    if IS_PRODUCTION:
+        val_email = os.getenv("ADMIN_EMAIL") or os.getenv("ADMIN_USERNAME")
+        val_pass = os.getenv("ADMIN_PASSWORD")
+        if (not val_email or not val_pass) or (val_pass and val_pass.strip().lower() in WEAK_DEFAULT_ADMIN_PASSWORDS):
+            raise RuntimeError("Weak or missing ADMIN_PASSWORD in production.")
+        if val_pass:
+            password_error = _validate_password_strength(val_pass)
+            if password_error:
+                raise RuntimeError(f"ADMIN_PASSWORD error: {password_error}")
+
+_validate_env()
+
+
+
+@contextmanager
+def _db():
+    """Transition helper: provides a session that behaves somewhat like a connection for raw SQL"""
+    session = SessionLocal()
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+def _init_db() -> None:
+    # Logic moved to Alembic, but we can keep create_all for safety in dev
+    from database import Base
+    Base.metadata.create_all(bind=engine)
+    inspector = inspect(engine)
+
+    # Development safety net: add columns introduced after initial migrations.
+    # create_all() does not alter existing tables.
+    if not inspector.has_table("history"):
+        return
+
+    history_columns = {col["name"] for col in inspector.get_columns("history")}
+    certificates_columns = {col["name"] for col in inspector.get_columns("certificates")} if inspector.has_table("certificates") else set()
+
+    with engine.begin() as conn:
+        if "user_email" not in history_columns:
+            conn.execute(text("ALTER TABLE history ADD COLUMN user_email VARCHAR"))
+        if "created_by_info" not in certificates_columns:
+            conn.execute(text("ALTER TABLE certificates ADD COLUMN created_by_info VARCHAR"))
+        
+        # SQLite doesn't support IF NOT EXISTS in CREATE INDEX for some versions 
+        # or it might already exist. We try for safety.
+        try:
+            conn.execute(text("CREATE INDEX ix_history_user_email ON history (user_email)"))
+        except Exception:
+            pass
+
+
+
+def _serialize(doc: Dict[str, Any]) -> Dict[str, Any]:
+    # convert datetime to isoformat for json storage
+    for k, v in list(doc.items()):
+        if isinstance(v, datetime):
+            doc[k] = v.isoformat()
+    return doc
+
+def _deserialize(doc: Dict[str, Any]) -> Dict[str, Any]:
+    for k in ("created_at", "updated_at"):
+        if isinstance(doc.get(k), str):
+            try:
+                doc[k] = datetime.fromisoformat(doc[k])
+            except Exception:
+                pass
+    return doc
+
+def _parse_dt(value: Optional[str]) -> Optional[datetime]:
+    if not value or not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except Exception:
+        return None
+
+def _is_expired(expires_at: Optional[str]) -> bool:
+    dt = _parse_dt(expires_at)
+    if not dt:
+        return False
+    return _now() >= dt
+
+def _hash_password(password: str) -> str:
+    iterations = 120_000
+    salt = os.urandom(16)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
+    return "pbkdf2_sha256${}${}${}".format(
+        iterations,
+        base64.b64encode(salt).decode("utf-8"),
+        base64.b64encode(dk).decode("utf-8"),
+    )
+
+def _verify_password(password: str, stored: str) -> bool:
+    try:
+        algo, iterations_str, salt_b64, hash_b64 = stored.split("$", 3)
+        if algo != "pbkdf2_sha256":
+            return False
+        iterations = int(iterations_str)
+        salt = base64.b64decode(salt_b64.encode("utf-8"))
+        expected = base64.b64decode(hash_b64.encode("utf-8"))
+        dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
+        return hmac.compare_digest(dk, expected)
+    except Exception:
+        return False
+
+def _new_token() -> str:
+    return secrets.token_urlsafe(32)
+
+def _random_password() -> str:
+    return secrets.token_urlsafe(12)
+
+def _is_blank(v: Optional[str]) -> bool:
+    return not (v or "").strip()
+
+
+# -----------------------------
+# Universal models
+# -----------------------------
+class UniversalIdentity(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    person_name: str = ""
+    company_name: str = ""
+
+    legal_type: str = ""      # optional (e.g., NGO legal type)
+    reg_no: str = ""          # optional
+    department: str = ""      # optional (Govt/Department)
+
+    pan: str = ""
+    cin: str = ""
+    gstin: str = ""
+    address: str = ""
+
+class UniversalMeta(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    purpose: str = ""
+    place: str = ""
+    date: str = ""            # keep string (dd/mm/yyyy)
+
+    # ✅ IMPORTANT: NetWorthForm sends this; without it, it gets dropped.
+    as_on_date: str = ""      # dd/mm/yyyy
+
+class UniversalCA(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    firm: str = ""
+    frn: str = ""
+    name: str = ""
+    membership_no: str = ""
+    udin: str = ""
+
+class UniversalTable(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    columns: List[str] = []
+
+    # ✅ rows can be:
+    # - List[List[Any]]   → tabular data (NetWorth, Utilisation)
+    # - List[Dict[str, Any]] → structured rows (RERA main_form)
+    rows: List[Union[List[Any], Dict[str, Any]]] = []
+
+
+class UniversalData(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    tables: Dict[str, UniversalTable] = {}
+    extras: Dict[str, Any] = {}
+
+class UniversalCertificateCreate(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    category: CertCategory
+    certificate_type: str          # e.g. "turnover_certificate", "net_worth_certificate"
+    entityType: EntityType
+
+    identity: UniversalIdentity
+    meta: UniversalMeta
+    ca: UniversalCA
+    data: UniversalData
+
+class UniversalCertificateStored(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    category: CertCategory
+    certificate_type: str
+    entityType: EntityType
+
+    identity: Dict[str, Any] = {}
+    meta: Dict[str, Any] = {}
+    ca: Dict[str, Any] = {}
+    data: Dict[str, Any] = {}
+
+    created_at: datetime = Field(default_factory=_now)
+    updated_at: datetime = Field(default_factory=_now)
+
+# -----------------------------
+# Auth models
+# -----------------------------
+class AuthLoginRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    username: Optional[str] = None
+    email: Optional[str] = None
+    password: str
+    full_name: Optional[str] = None
+
+class AuthLoginResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    token: str
+    user: Dict[str, Any]
+
+class TempCredentialCreate(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    username: Optional[str] = None
+    email: Optional[str] = None
+    full_name: Optional[str] = None
+    password: Optional[str] = None
+    expires_in_hours: Optional[int] = 12
+    role: Optional[Literal["temporary", "staff"]] = "temporary"
+    can_manage_certificates: Optional[bool] = None
+    can_edit_certificates: Optional[bool] = False
+    can_delete_certificates: Optional[bool] = False
+
+class RevokeCredentialRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    user_id: Optional[str] = None
+    temp_access_id: Optional[str] = None
+
+class GeoCheckRequest(BaseModel):
+    lat: float
+    lng: float
+
+class OfficeLocationCreate(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    name: str
+    ips: Optional[List[str]] = []
+    plus_code: Optional[str] = None
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+    radius_m: Optional[float] = None
+
+class OfficeLocationUpdate(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    name: Optional[str] = None
+    ips: Optional[List[str]] = None
+    plus_code: Optional[str] = None
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+    radius_m: Optional[float] = None
+
+# -----------------------------
+# Validation (common + per category)
+# -----------------------------
+def _required_display_name(entityType: str, identity: UniversalIdentity) -> Optional[str]:
+    """
+    Rule:
+    - PERSONAL => person_name required
+    - Others => company_name required
+    """
+    if entityType == "PERSONAL":
+        if _is_blank(identity.person_name):
+            return "person_name is required for PERSONAL."
+    else:
+        if _is_blank(identity.company_name):
+            return "company_name is required for non-PERSONAL entities."
+    return None
+
+def validate_common(payload: UniversalCertificateCreate) -> Optional[str]:
+    cert_type = payload.certificate_type.lower()
+
+    # ---------------- ENTITY NAME ----------------
+    err = _required_display_name(payload.entityType, payload.identity)
+    if err:
+        return err
+
+    # ---------------- META ----------------
+    # ❌ purpose NOT required for RERA Form 7
+    if cert_type != "rera_form_7_reg_9":
+        if _is_blank(payload.meta.purpose):
+            return "purpose is required."
+        
+        if _is_blank(payload.meta.place):
+            return "place is required."
+    
+        if _is_blank(payload.meta.date):
+            return "date is required."
+
+    # place & date are still required (even for RERA)
+
+
+    # ---------------- CA DETAILS ----------------
+    # ❌ CA details NOT required for RERA Form 7
+    if cert_type != "rera_form_7_reg_9":
+        if _is_blank(payload.ca.firm):
+            return "CA firm is required."
+        if _is_blank(payload.ca.frn):
+            return "FRN is required."
+        if _is_blank(payload.ca.name):
+            return "CA name is required."
+        if _is_blank(payload.ca.membership_no):
+            return "CA membership_no is required."
+
+    return None
+
+def validate_turnover(payload: UniversalCertificateCreate) -> Optional[str]:
+    t = payload.data.tables.get("main")
+    if not t or not t.rows:
+        return "TURNOVER requires data.tables.main with at least one row."
+    return None
+
+def validate_networth(payload: UniversalCertificateCreate) -> Optional[str]:
+    # Net Worth requires an As On date
+    if _is_blank(payload.meta.as_on_date):
+        return "NET_WORTH requires meta.as_on_date."
+
+    # Require the schedule tables coming from NetWorthForm
+    required_tables = ["scheduleA", "scheduleB", "scheduleC", "summary"]
+    for key in required_tables:
+        t = payload.data.tables.get(key)
+        if not t:
+            return f"NET_WORTH requires data.tables.{key}."
+        # schedules must have rows (at least 1)
+        if key in ("scheduleA", "scheduleB", "scheduleC"):
+            if not t.rows or len(t.rows) == 0:
+                return f"NET_WORTH requires data.tables.{key}.rows with at least one row."
+
+    return None
+
+def validate_utilisation(payload: UniversalCertificateCreate) -> Optional[str]:
+    tables = payload.data.tables or {}
+
+    # Payment details required
+    payment = tables.get("paymentDetails")
+    if not payment or not payment.rows:
+        return "UTILISATION requires paymentDetails table with at least one row."
+
+    # Period required
+    period = tables.get("period")
+    if not period or not period.rows:
+        return "UTILISATION requires period table with from and to dates."
+
+    # Summary required
+    summary = tables.get("summary")
+    if not summary or not summary.rows:
+        return "UTILISATION requires summary table."
+
+    return None
+
+def validate_rera(payload: UniversalCertificateCreate):
+    cert_type = payload.certificate_type.lower()
+
+    # ---------------- RERA FORM 3 ----------------
+    if cert_type == "rera_form_3":
+        tables = payload.data.tables or {}
+
+        required_tables = ["main_form", "sold_inventory", "unsold_inventory"]
+        for key in required_tables:
+            t = tables.get(key)
+            if not t or not isinstance(t.rows, list) or len(t.rows) == 0:
+                return f"RERA Form 3 requires data.tables.{key}.rows"
+
+        extras = payload.data.extras or {}
+        if not extras.get("projectName"):
+            return "RERA Form 3 requires extras.projectName"
+        if not extras.get("reraRegistrationNumber"):
+            return "RERA Form 3 requires extras.reraRegistrationNumber"
+
+        return None
+
+    # ---------------- RERA FORM 7 ----------------
+    if cert_type == "rera_form_7_reg_9":
+        extras = payload.data.extras or {}
+        form = extras.get("formData")
+
+        if not isinstance(form, dict):
+            return "RERA Form 7 requires data.extras.formData"
+
+        # minimal statutory checks (keep flexible)
+        if not form.get("meta", {}).get("year"):
+            return "RERA Form 7 requires year"
+        if not form.get("projectDetails", {}).get("registrationNumber"):
+            return "RERA Form 7 requires project registration number"
+
+        return None
+
+    return "Unknown RERA certificate type"
+
+def validate_nbfc(payload: UniversalCertificateCreate) -> Optional[str]:
+    cert_type = (payload.certificate_type or "").lower().strip()
+    if cert_type != "rbi_statutory_auditor_certificate_for_nbfcs":
+        return "Unknown NBFC certificate type"
+
+    tables = payload.data.tables or {}
+    main = tables.get("main")
+    if not main or not main.rows:
+        return "NBFC requires data.tables.main with checklist rows."
+
+    extras = payload.data.extras or {}
+    form = extras.get("formData")
+    if not isinstance(form, dict):
+        return "NBFC requires data.extras.formData"
+
+    if _is_blank(str(form.get("financialYearEnd") or "")):
+        return "NBFC requires financial year end."
+
+    return None
+
+def validate_lod(payload: UniversalCertificateCreate) -> Optional[str]:
+    data = payload.data.extras or {}
+    if _is_blank(payload.identity.cin):
+        return "CIN is required for List of Directors."
+    if _is_blank(data.get("as_on_date")):
+        return "As on Date is required for List of Directors."
+    if not data.get("directors") or not isinstance(data.get("directors"), list):
+        return "At least one director must be listed."
+    return None
+
+
+CATEGORY_VALIDATORS: Dict[str, Callable[[UniversalCertificateCreate], Optional[str]]] = {
+    "TURNOVER": validate_turnover,
+    "NET_WORTH": validate_networth,
+    "UTILISATION": validate_utilisation,
+    "RERA": validate_rera,
+    "NBFC": validate_nbfc,
+    "LIST_OF_DIRECTORS": validate_lod,
+}
+
+# -----------------------------
+# Auth helpers
+# -----------------------------
+def _sanitize_user(user: Dict[str, Any]) -> Dict[str, Any]:
+    safe = dict(user)
+    safe.pop("password_hash", None)
+    if safe.get("email") and "username" not in safe:
+        safe["username"] = safe["email"]
+    role = (safe.get("role") or "").lower()
+    if role == "admin":
+        safe["can_edit_certificates"] = True
+        safe["can_delete_certificates"] = True
+        safe["can_manage_certificates"] = True
+    else:
+        safe["can_edit_certificates"] = bool(int(safe.get("can_edit_certificates") or 0))
+        safe["can_delete_certificates"] = bool(int(safe.get("can_delete_certificates") or 0))
+        safe["can_manage_certificates"] = bool(
+            safe["can_edit_certificates"] or safe["can_delete_certificates"]
+        )
+    return safe
+
+def _log_history(user_id: str, action_type: str, action_data: Optional[Dict[str, Any]] = None) -> None:
+    # Try to find user email for the snapshot
+    with _db() as db:
+        user = db.query(User).filter(User.id == user_id).first()
+        email_snapshot = user.email if user else "deleted-user"
+        
+        history = History(
+            id=str(uuid4()),
+            user_id=user_id,
+            user_email=email_snapshot,
+            action_type=action_type,
+            action_data=json.dumps(action_data or {}, ensure_ascii=False, default=str),
+            timestamp=_now().isoformat()
+        )
+        db.add(history)
+
+async def _ensure_admin_user() -> None:
+    admin_email = (os.getenv("ADMIN_EMAIL") or os.getenv("ADMIN_USERNAME") or "").strip().lower()
+    admin_password = (os.getenv("ADMIN_PASSWORD") or "").strip()
+
+    if not admin_email or not admin_password:
+        if IS_PRODUCTION:
+            raise RuntimeError("ADMIN_EMAIL/ADMIN_USERNAME and ADMIN_PASSWORD are required in production.")
+        admin_email = admin_email or "admin"
+        admin_password = admin_password or "admin123"
+
+    if IS_PRODUCTION:
+        if admin_password.lower() in WEAK_DEFAULT_ADMIN_PASSWORDS:
+            raise RuntimeError("ADMIN_PASSWORD is too weak for production.")
+        password_error = _validate_password_strength(admin_password)
+        if password_error:
+            raise RuntimeError(f"ADMIN_PASSWORD is invalid for production. {password_error}")
+
+    with _db() as db:
+        user = db.query(User).filter(User.email == admin_email).first()
+        if user:
+            user.can_edit_certificates = 1
+            user.can_delete_certificates = 1
+            db.commit()
+            return
+
+        admin_user = User(
+            id=str(uuid4()),
+            email=admin_email,
+            full_name="Admin",
+            role="admin",
+            can_edit_certificates=1,
+            can_delete_certificates=1,
+            password_hash=_hash_password(admin_password),
+            created_at=_now().isoformat()
+        )
+        db.add(admin_user)
 
 def _get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
     with _db() as db:
@@ -484,7 +994,7 @@ def _revoke_sessions_for_access(access_id: str) -> None:
     with _db() as db:
         db.query(SessionModel).filter(SessionModel.temp_access_id == access_id).update({"is_revoked": 1})
 
-def _prune_expired_sessions() -> None:
+def # Pruned in background -> None:
     with _db() as db:
         db.query(SessionModel).filter(SessionModel.expires_at <= _now().isoformat()).delete()
 
@@ -831,63 +1341,26 @@ async def startup_event():
     loop = asyncio.get_event_loop()
     loop.run_in_executor(None, _get_office_locations_cached)
     loop.run_in_executor(None, _prune_expired_sessions)
-    # Warmup caches and prune sessions in background, not blocking startup
-    loop = asyncio.get_event_loop()
-    loop.run_in_executor(None, _get_office_locations_cached)
-    loop.run_in_executor(None, _prune_expired_sessions)
 
 @app.middleware("http")
 async def auth_expiry_middleware(request: Request, call_next):
-    request_id = getattr(request.state, "request_id", None) or request.headers.get("x-request-id") or str(uuid4())
-    request.state.request_id = request_id
     auth = request.headers.get("authorization", "")
-    try:
-        if auth.lower().startswith("bearer "):
-            user, session = await _auth_from_request(request)
-            if not user or not session:
-                return Response(
-                    content=json.dumps({"detail": "Unauthorized or expired credentials."}),
-                    status_code=401,
-                    media_type="application/json",
-                )
-            if user is not None and session is not None:
-                request.state.user_id = user.get("id")
-                request.state.session_id = session.get("id")
-        return await call_next(request)
-    except Exception:
-        logger.exception(
-            "Unhandled exception in auth middleware: method=%s path=%s req_id=%s",
-            request.method,
-            request.url.path,
-            request_id,
-        )
-        return Response(
-            content=json.dumps({"detail": "Internal server error.", "request_id": request_id}),
-            status_code=500,
-            media_type="application/json",
-        )
+    if auth.lower().startswith("bearer "):
+        user, session = await _auth_from_request(request)
+        if not user or not session:
+            return Response(
+                content=json.dumps({"detail": "Unauthorized or expired credentials."}),
+                status_code=401,
+                media_type="application/json",
+            )
+        if user is not None and session is not None:
+            request.state.user_id = user.get("id")
+            request.state.session_id = session.get("id")
+    return await call_next(request)
 
 @app.middleware("http")
 async def security_headers_middleware(request: Request, call_next):
-    request_id = getattr(request.state, "request_id", None) or request.headers.get("x-request-id") or str(uuid4())
-    request.state.request_id = request_id
-    started = perf_counter()
-    try:
-        response = await call_next(request)
-    except Exception:
-        logger.exception(
-            "Unhandled exception while processing request: method=%s path=%s req_id=%s",
-            request.method,
-            request.url.path,
-            request_id,
-        )
-        response = Response(
-            content=json.dumps({"detail": "Internal server error.", "request_id": request_id}),
-            status_code=500,
-            media_type="application/json",
-        )
-
-    duration_ms = (perf_counter() - started) * 1000.0
+    response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "no-referrer"
@@ -900,16 +1373,6 @@ async def security_headers_middleware(request: Request, call_next):
         is_https = request.url.scheme == "https" or forwarded_proto == "https"
         if is_https:
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-    response.headers["X-Request-ID"] = request_id
-    response.headers["X-Response-Time-Ms"] = f"{duration_ms:.2f}"
-    logger.info(
-        "request method=%s path=%s status=%s duration_ms=%.2f req_id=%s",
-        request.method,
-        request.url.path,
-        response.status_code,
-        duration_ms,
-        request_id,
-    )
     return response
 
 @api_router.get("/")
@@ -944,13 +1407,7 @@ async def generate_cert_docx(cert_id: str, request: Request):
         if user.get("role") != "admin" and cert_row.user_id != user["id"]:
             raise HTTPException(status_code=403, detail="Forbidden")
         
-        cert_data = _safe_json_loads(
-            cert_row.payload_json,
-            {},
-            f"certificate:{cert_row.id}",
-        )
-        if not cert_data:
-            raise HTTPException(status_code=500, detail="Stored certificate payload is invalid JSON.")
+        cert_data = json.loads(cert_row.payload_json)
         category = cert_data.get("category")
         
         if category in ("FAIR_VALUE_SHARES", "LIST_OF_DIRECTORS"):
@@ -1018,6 +1475,7 @@ async def auth_login(payload: AuthLoginRequest, request: Request):
 
             token_hours = int(os.getenv("TOKEN_TTL_HOURS", "12"))
             token_expires = _now() + timedelta(hours=token_hours)
+            # Pruned in background
             session = _create_session(user["id"], None, token_expires)
             _clear_login_rate_limit(rate_limit_key)
             _log_history(user["id"], "LOGIN", {"email": email, "role": "admin"})
@@ -1025,8 +1483,7 @@ async def auth_login(payload: AuthLoginRequest, request: Request):
             return AuthLoginResponse.model_validate(resp_dict)
 
         # Temporary user login: must match an active temp access entry
-        loop = asyncio.get_event_loop()
-        access, reason = await loop.run_in_executor(None, _find_temp_access_for_login, user["id"], payload.password)
+        access, reason = _find_temp_access_for_login(user["id"], payload.password)
         if not access:
             if reason == "revoked":
                 raise HTTPException(status_code=401, detail="Credentials have been revoked.")
@@ -1048,6 +1505,7 @@ async def auth_login(payload: AuthLoginRequest, request: Request):
         if access_expires and access_expires < token_expires:
             token_expires = access_expires
 
+        # Pruned in background
         session = _create_session(user["id"], access["id"], token_expires)
         _clear_login_rate_limit(rate_limit_key)
         _log_history(user["id"], "LOGIN", {"email": email, "role": "temporary"})
@@ -1124,9 +1582,7 @@ async def create_temp_credential(payload: TempCredentialCreate, request: Request
         raise HTTPException(status_code=500, detail="User could not be resolved.")
     
     admin_id = str(admin.get("id") or "")
-    loop = asyncio.get_event_loop()
-    hashed = await loop.run_in_executor(None, _hash_password, password)
-    access = _create_temp_access(user["id"], hashed, expires_at, admin_id)
+    access = _create_temp_access(user["id"], _hash_password(password), expires_at, admin_id)
     _log_history(user["id"], "TEMP_ACCESS_CREATED", {"email": email, "expires_at": expires_at})
     _log_history(admin["id"], "ADMIN_CREATED_TEMP_ACCESS", {"email": email, "access_id": access["id"]})
 
@@ -1207,7 +1663,6 @@ async def create_office(payload: OfficeLocationCreate, request: Request):
     with _db() as db:
         db.add(office)
         db.commit()
-    _invalidate_office_cache()
     return {"id": office_id}
 
 @api_router.put("/admin/offices/{office_id}")
@@ -1241,7 +1696,7 @@ async def update_office(office_id: str, payload: OfficeLocationUpdate, request: 
             
         office.updated_at = _now().isoformat()
         db.commit()
-    _invalidate_office_cache()
+        
     return {"ok": True, "id": office_id}
 
 @api_router.delete("/admin/offices/{office_id}")
@@ -1253,7 +1708,6 @@ async def delete_office(office_id: str, request: Request):
             raise HTTPException(status_code=404, detail="Office location not found.")
         db.delete(office)
         db.commit()
-    _invalidate_office_cache()
     return {"ok": True, "id": office_id}
 
 @api_router.get("/access/status")
@@ -1387,11 +1841,7 @@ async def list_history(
         for h_obj, u_email in query.order_by(History.timestamp.desc()).all():
             item = _to_dict(h_obj)
             item["email"] = u_email
-            item["action_data"] = _safe_json_loads(
-                item.get("action_data"),
-                {},
-                f"history:{item.get('id')}",
-            )
+            item["action_data"] = json.loads(item.get("action_data") or "{}")
             items.append(item)
 
     return {"items": items}
@@ -1439,6 +1889,7 @@ async def create_certificate(payload: UniversalCertificateCreate, request: Reque
     with _db() as db:
         db.add(cert_obj)
         db.commit()
+        
     background_tasks.add_task(_log_history, user["id"], "CERT_CREATE", {"cert_id": stored["id"], "category": stored["category"]})
     return doc
 
@@ -1464,19 +1915,11 @@ async def list_certificates(
             total = query.count()
             offset = (page - 1) * limit
             rows = query.offset(offset).limit(limit).all()
-            certs: List[Dict[str, Any]] = []
-            for row in rows:
-                cert = _safe_json_loads(row[0], {}, "certificates:list")
-                if cert:
-                    certs.append(cert)
+            certs = [json.loads(r[0]) for r in rows]
             return {"page": page, "limit": limit, "total": total, "items": certs}
         else:
             rows = query.all()
-            certs = []
-            for row in rows:
-                cert = _safe_json_loads(row[0], {}, "certificates:list")
-                if cert:
-                    certs.append(cert)
+            certs = [json.loads(r[0]) for r in rows]
             return certs
 
 # -----------------------------
@@ -1491,10 +1934,7 @@ async def get_certificate(cert_id: str, request: Request):
         raise HTTPException(status_code=404, detail="Certificate not found")
     if user.get("role") != "admin" and row.user_id != user["id"]:
         raise HTTPException(status_code=403, detail="Forbidden")
-    cert = _safe_json_loads(row.payload_json, {}, f"certificate:{cert_id}")
-    if not cert:
-        raise HTTPException(status_code=500, detail="Stored certificate payload is invalid JSON.")
-    return cert
+    return json.loads(row.payload_json)
 
 # -----------------------------
 # Update certificate (merge-safe)
@@ -1514,9 +1954,7 @@ async def update_certificate(cert_id: str, request: Request, background_tasks: B
             if not _can_user_manage_certificates(user):
                 raise HTTPException(status_code=403, detail="Certificate manage permission denied.")
 
-        existing = _safe_json_loads(cert.payload_json, {}, f"certificate:{cert_id}")
-        if not existing:
-            raise HTTPException(status_code=500, detail="Stored certificate payload is invalid JSON.")
+        existing = json.loads(cert.payload_json)
         updated = {**existing, **payload}
         updated["id"] = cert_id
         updated["created_at"] = existing.get("created_at", updated.get("created_at"))
@@ -1580,4 +2018,7 @@ app.add_middleware(
 # Wire router
 # -----------------------------
 app.include_router(api_router)
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
