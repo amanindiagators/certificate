@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import ClientSelector from "../components/ClientSelector";
 import { ArrowLeft, Save, Trash2, Plus } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -867,6 +868,20 @@ export default function UtilizationForm() {
 
   const update = (key, value) => setForm((p) => ({ ...p, [key]: value }));
 
+  const applyClient = (client) => {
+    const nextEntityType = client?.entity_type || entityType;
+    setEntityType(nextEntityType);
+    setForm((prev) => ({
+      ...prev,
+      natureOfOrg: nextEntityType,
+      organizationName: client?.company_name || client?.display_name || client?.person_name || "",
+      pan: client?.pan || "",
+      cin: client?.cin || "",
+      gstin: client?.gstin || "",
+      address: client?.address || "",
+    }));
+  };
+
   const updateRow = (key, idx, field, value) => {
     setForm((p) => {
       const arr = key === "paymentRows" ? normalizePaymentRows(p[key]) : normalizeRows(p[key]);
@@ -1156,6 +1171,8 @@ export default function UtilizationForm() {
                     ))}
                   </select>
                 </div>
+
+                <ClientSelector entityType={entityType} onSelect={applyClient} />
 
                 <div>
                   <Label>Name of Organisation *</Label>

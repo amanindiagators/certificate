@@ -8,7 +8,8 @@ pandas
 openpyxl
 openlocationcode
 sqlalchemy
-psycopg2-binary
+libsql
+sqlalchemy-libsql
 alembic
 httpx
 python-docx

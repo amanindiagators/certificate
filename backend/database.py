@@ -1,59 +1,68 @@
 import os
 from pathlib import Path
+from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 # Base directory
 ROOT_DIR = Path(__file__).parent
 
+# Load file-based env before reading configuration so local and scripted
+# deployments do not silently fall back to SQLite.
+load_dotenv(ROOT_DIR / ".env", override=False)
+
 # Environment detection
 ENVIRONMENT = (os.getenv("ENVIRONMENT") or "development").strip().lower()
 IS_PRODUCTION = ENVIRONMENT in {"prod", "production"}
 
-# Database URL from environment or default to SQLite
-DATABASE_URL = os.getenv("DATABASE_URL")
+def _resolve_database_url() -> str:
+    database_url = os.getenv("DATABASE_URL")
+    if database_url:
+        return database_url.strip()
 
-if not DATABASE_URL:
     if IS_PRODUCTION:
         raise RuntimeError("DATABASE_URL is required in production.")
-    # Default to the current SQLite database
+
     DATA_DIR = Path(os.getenv("STORAGE_DIR", str(ROOT_DIR / "data")))
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
     DB_PATH = Path(os.getenv("DB_PATH", str(DATA_DIR / "app.db")))
-    DATABASE_URL = f"sqlite:///{DB_PATH}"
+    return f"sqlite:///{DB_PATH}"
 
-if IS_PRODUCTION and DATABASE_URL.startswith("sqlite"):
-    raise RuntimeError("SQLite is not allowed in production. Set DATABASE_URL.")
 
-# For SQLite, we need connect_args={"check_same_thread": False}
-if DATABASE_URL.startswith("sqlite"):
-    engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
-else:
-    # Neon (serverless Postgres) drops idle connections after ~5 minutes.
-    # Defaults below are tuned for Railway + Neon: small pool, aggressive recycle.
-    pool_size = int(os.getenv("DB_POOL_SIZE", "3"))
-    max_overflow = int(os.getenv("DB_MAX_OVERFLOW", "2"))
-    pool_timeout = int(os.getenv("DB_POOL_TIMEOUT", "10"))
-    pool_recycle = int(os.getenv("DB_POOL_RECYCLE", "300"))  # 5 min < Neon idle timeout
-    connect_timeout = int(os.getenv("DB_CONNECT_TIMEOUT", "5"))
-    app_name = os.getenv("DB_APPLICATION_NAME", "certificate-backend")
+def normalize_database_url(database_url: str) -> str:
+    database_url = (database_url or "").strip()
+    if database_url.startswith("libsql://"):
+        return f"sqlite+libsql://{database_url[len('libsql://'):]}"
+    return database_url
 
-    connect_args = {
-        "connect_timeout": max(1, connect_timeout),
-        "application_name": app_name,
-    }
-    # Neon requires SSL; add sslmode if not already in the URL
-    if "sslmode" not in DATABASE_URL:
-        connect_args["sslmode"] = "require"
 
-    engine = create_engine(
-        DATABASE_URL,
+def create_database_engine(database_url: str):
+    database_url = normalize_database_url(database_url)
+
+    if IS_PRODUCTION and database_url.startswith("sqlite:///"):
+        raise RuntimeError("File-based SQLite is not allowed in production. Set DATABASE_URL to Turso/libSQL.")
+
+    if database_url.startswith("sqlite+libsql://"):
+        auth_token = os.getenv("TURSO_AUTH_TOKEN")
+        connect_args = {"auth_token": auth_token} if auth_token else {}
+        return create_engine(
+            database_url,
+            pool_pre_ping=True,
+            connect_args=connect_args,
+        )
+
+    if database_url.startswith("sqlite"):
+        return create_engine(database_url, connect_args={"check_same_thread": False})
+
+    return create_engine(
+        database_url,
         pool_pre_ping=True,
-        pool_size=max(1, pool_size),
-        max_overflow=max(0, max_overflow),
-        pool_timeout=max(1, pool_timeout),
-        pool_recycle=max(30, pool_recycle),
-        connect_args=connect_args,
     )
+
+
+# Database URL from environment or default to local SQLite
+DATABASE_URL = normalize_database_url(_resolve_database_url())
+engine = create_database_engine(DATABASE_URL)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

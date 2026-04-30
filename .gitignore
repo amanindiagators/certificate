@@ -65,6 +65,7 @@ pnpm-debug.log*
 .cache/
 .turbo/
 .next/
+.vercel/
 
 # Build outputs
 build/

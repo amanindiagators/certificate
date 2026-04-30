@@ -1,4 +1,4 @@
-from fastapi import FastAPI, BackgroundTasks, APIRouter, HTTPException, Query, Body, Request, File, UploadFile
+from fastapi import FastAPI, APIRouter, HTTPException, Query, Body, Request, File, UploadFile
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
@@ -23,11 +23,11 @@ from fastapi.responses import Response
 from sqlalchemy.orm import Session as DBSession
 try:
     from .database import engine, SessionLocal, get_db
-    from .models import User, Certificate, History, Session as SessionModel, TemporaryAccess, OfficeLocation
+    from .models import User, Certificate, Client, History, Session as SessionModel, TemporaryAccess, OfficeLocation
 except ImportError:
     from database import engine, SessionLocal, get_db
-    from models import User, Certificate, History, Session as SessionModel, TemporaryAccess, OfficeLocation
-from sqlalchemy import text, inspect
+    from models import User, Certificate, Client, History, Session as SessionModel, TemporaryAccess, OfficeLocation
+from sqlalchemy import text, inspect, or_, func
 from docx import Document
 from docx.shared import Pt, RGBColor, Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -183,7 +183,8 @@ ENVIRONMENT = (os.getenv("ENVIRONMENT") or "development").strip().lower()
 IS_PRODUCTION = ENVIRONMENT in {"prod", "production"}
 
 DATA_DIR = Path(os.getenv("STORAGE_DIR", str(ROOT_DIR / "data")))
-DATA_DIR.mkdir(parents=True, exist_ok=True)
+if not IS_PRODUCTION:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 # Office access control managed via environment and database
 BACKEND_DIR = Path(__file__).parent
@@ -395,7 +396,10 @@ def _db():
 
 def _init_db() -> None:
     # Logic moved to Alembic, but we can keep create_all for safety in dev
-    from database import Base
+    try:
+        from .database import Base
+    except ImportError:
+        from database import Base
     Base.metadata.create_all(bind=engine)
     inspector = inspect(engine)
 
@@ -539,6 +543,7 @@ class UniversalData(BaseModel):
 class UniversalCertificateCreate(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
+    client_id: Optional[str] = None
     category: CertCategory
     certificate_type: str          # e.g. "turnover_certificate", "net_worth_certificate"
     entityType: EntityType
@@ -552,6 +557,7 @@ class UniversalCertificateStored(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     id: str = Field(default_factory=lambda: str(uuid4()))
+    client_id: Optional[str] = None
     category: CertCategory
     certificate_type: str
     entityType: EntityType
@@ -586,7 +592,7 @@ class TempCredentialCreate(BaseModel):
     full_name: Optional[str] = None
     password: Optional[str] = None
     expires_in_hours: Optional[int] = 12
-    role: Optional[Literal["temporary", "staff"]] = "temporary"
+    role: Optional[Literal["temporary", "staff", "data_executive"]] = "temporary"
     can_manage_certificates: Optional[bool] = None
     can_edit_certificates: Optional[bool] = False
     can_delete_certificates: Optional[bool] = False
@@ -617,6 +623,28 @@ class OfficeLocationUpdate(BaseModel):
     lat: Optional[float] = None
     lng: Optional[float] = None
     radius_m: Optional[float] = None
+
+class ClientCreate(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    entity_type: EntityType
+    display_name: Optional[str] = None
+    person_name: Optional[str] = None
+    company_name: Optional[str] = None
+    pan: Optional[str] = None
+    cin: Optional[str] = None
+    gstin: Optional[str] = None
+    address: Optional[str] = None
+
+class ClientUpdate(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    entity_type: Optional[EntityType] = None
+    display_name: Optional[str] = None
+    person_name: Optional[str] = None
+    company_name: Optional[str] = None
+    pan: Optional[str] = None
+    cin: Optional[str] = None
+    gstin: Optional[str] = None
+    address: Optional[str] = None
 
 # -----------------------------
 # Validation (common + per category)
@@ -924,6 +952,10 @@ def _update_user_certificate_permissions(user_id: str, can_manage: bool) -> None
             "can_delete_certificates": 1 if can_manage else 0
         })
 
+def _update_user_role(user_id: str, role: str) -> None:
+    with _db() as db:
+        db.query(User).filter(User.id == user_id).update({"role": role})
+
 def _can_user_manage_certificates(user: Dict[str, Any]) -> bool:
     if (user.get("role") or "").lower() == "admin":
         return True
@@ -931,6 +963,62 @@ def _can_user_manage_certificates(user: Dict[str, Any]) -> bool:
         int(user.get("can_edit_certificates") or 0)
         or int(user.get("can_delete_certificates") or 0)
     )
+
+def _can_user_manage_clients(user: Dict[str, Any]) -> bool:
+    return (user.get("role") or "").lower() in {"admin", "data_executive"}
+
+def _clean_client_text(value: Optional[str]) -> str:
+    return str(value or "").strip()
+
+def _normalize_client_identifier(value: Optional[str]) -> str:
+    return _clean_client_text(value).upper()
+
+def _client_display_name(data: Dict[str, Any]) -> str:
+    return (
+        _clean_client_text(data.get("display_name"))
+        or _clean_client_text(data.get("company_name"))
+        or _clean_client_text(data.get("person_name"))
+    )
+
+def _serialize_client(client: Client) -> Dict[str, Any]:
+    data = _to_dict(client)
+    data["is_deleted"] = bool(int(data.get("is_deleted") or 0))
+    return data
+
+def _assert_no_active_client_duplicate(
+    db: DBSession,
+    pan: Optional[str],
+    cin: Optional[str],
+    gstin: Optional[str],
+    exclude_id: Optional[str] = None,
+) -> None:
+    duplicate_checks = (
+        ("pan", _normalize_client_identifier(pan), "PAN"),
+        ("cin", _normalize_client_identifier(cin), "CIN"),
+        ("gstin", _normalize_client_identifier(gstin), "GSTIN"),
+    )
+    for field_name, value, label in duplicate_checks:
+        if not value:
+            continue
+        column = getattr(Client, field_name)
+        query = db.query(Client).filter(
+            Client.is_deleted == 0,
+            func.upper(column) == value,
+        )
+        if exclude_id:
+            query = query.filter(Client.id != exclude_id)
+        existing = query.first()
+        if existing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"An active client with this {label} already exists.",
+            )
+
+async def require_client_master_user(request: Request) -> Dict[str, Any]:
+    user = await require_user(request)
+    if not _can_user_manage_clients(user):
+        raise HTTPException(status_code=403, detail="Client master access requires admin or data executive role.")
+    return user
 
 def _find_temp_access_for_login(user_id: str, password: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     with _db() as db:
@@ -1238,7 +1326,7 @@ def _is_within_office_geo(lat: float, lng: float) -> Tuple[bool, Optional[float]
     return (False, None if math.isinf(closest_distance) else closest_distance, closest_name)
 
 def _is_staff_role(role: Optional[str]) -> bool:
-    return (role or "").lower() in ("temporary", "staff", "temp")
+    return (role or "").lower() in ("temporary", "staff", "temp", "data_executive")
 
 def _session_geo_granted(session: Dict[str, Any]) -> bool:
     value = session.get("geo_granted_until")
@@ -1510,7 +1598,7 @@ async def auth_login(payload: AuthLoginRequest, request: Request):
         # Pruned in background
         session = _create_session(user["id"], access["id"], token_expires)
         _clear_login_rate_limit(rate_limit_key)
-        _log_history(user["id"], "LOGIN", {"email": email, "role": "temporary"})
+        _log_history(user["id"], "LOGIN", {"email": email, "role": user.get("role") or "temporary"})
         resp_dict = {"token": str(session.get("token") or ""), "user": _sanitize_user(user)}
         return AuthLoginResponse.model_validate(resp_dict)
     except HTTPException as exc:
@@ -1538,8 +1626,8 @@ async def create_temp_credential(payload: TempCredentialCreate, request: Request
         raise HTTPException(status_code=400, detail="Cannot create temporary access for admin email.")
 
     requested_role = payload.role or "temporary"
-    if requested_role not in ("temporary", "staff"):
-        raise HTTPException(status_code=400, detail="role must be temporary or staff.")
+    if requested_role not in ("temporary", "staff", "data_executive"):
+        raise HTTPException(status_code=400, detail="role must be temporary, staff, or data_executive.")
 
     if payload.can_manage_certificates is None:
         can_manage_certificates = bool(payload.can_edit_certificates) or bool(
@@ -1552,6 +1640,8 @@ async def create_temp_credential(payload: TempCredentialCreate, request: Request
         user = existing
         if (user.get("role") or "").lower() == "admin":
             raise HTTPException(status_code=400, detail="Cannot modify admin permissions here.")
+        if (user.get("role") or "").lower() != requested_role:
+            _update_user_role(user["id"], requested_role)
         _update_user_certificate_permissions(user["id"], can_manage_certificates)
         user = _get_user_by_id(user["id"])
     else:
@@ -1780,8 +1870,13 @@ async def list_temp_credentials(
     await require_admin(request)
     items = []
     with _db() as db:
-        results = db.query(TemporaryAccess, User.email).join(User, User.id == TemporaryAccess.user_id).order_by(TemporaryAccess.created_at.desc()).all()
-        for ta_obj, email in results:
+        results = (
+            db.query(TemporaryAccess, User.email, User.role)
+            .join(User, User.id == TemporaryAccess.user_id)
+            .order_by(TemporaryAccess.created_at.desc())
+            .all()
+        )
+        for ta_obj, email, role in results:
             ta_dict = _to_dict(ta_obj)
             is_expired = _is_expired(ta_dict["expires_at"])
             item = {
@@ -1789,6 +1884,7 @@ async def list_temp_credentials(
                 "user_id": ta_dict["user_id"],
                 "username": email,
                 "email": email,
+                "role": role,
                 "expires_at": ta_dict["expires_at"],
                 "is_revoked": bool(ta_dict["is_revoked"]),
                 "is_expired": is_expired,
@@ -1813,6 +1909,136 @@ async def list_users(request: Request):
     for item in items:
         item["username"] = item.get("email")
     return {"items": items}
+
+@api_router.get("/clients")
+async def list_clients(
+    request: Request,
+    q: Optional[str] = Query(default=None),
+    entity_type: Optional[EntityType] = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=100),
+):
+    await require_client_master_user(request)
+    query_text = _clean_client_text(q)
+    with _db() as db:
+        query = db.query(Client).filter(Client.is_deleted == 0)
+        if entity_type:
+            query = query.filter(Client.entity_type == entity_type)
+        if query_text:
+            pattern = f"%{query_text}%"
+            query = query.filter(
+                or_(
+                    Client.display_name.ilike(pattern),
+                    Client.person_name.ilike(pattern),
+                    Client.company_name.ilike(pattern),
+                    Client.pan.ilike(pattern),
+                    Client.cin.ilike(pattern),
+                    Client.gstin.ilike(pattern),
+                )
+            )
+        clients = query.order_by(Client.display_name.asc()).limit(limit).all()
+        return {"items": [_serialize_client(client) for client in clients]}
+
+@api_router.get("/clients/{client_id}")
+async def get_client(client_id: str, request: Request):
+    await require_client_master_user(request)
+    with _db() as db:
+        client = db.query(Client).filter(Client.id == client_id, Client.is_deleted == 0).first()
+        if not client:
+            raise HTTPException(status_code=404, detail="Client not found.")
+        return _serialize_client(client)
+
+@api_router.post("/clients")
+async def create_client(payload: ClientCreate, request: Request):
+    user = await require_client_master_user(request)
+    data = payload.model_dump()
+    clean_data = {
+        "entity_type": data["entity_type"],
+        "display_name": _clean_client_text(data.get("display_name")),
+        "person_name": _clean_client_text(data.get("person_name")),
+        "company_name": _clean_client_text(data.get("company_name")),
+        "pan": _normalize_client_identifier(data.get("pan")),
+        "cin": _normalize_client_identifier(data.get("cin")),
+        "gstin": _normalize_client_identifier(data.get("gstin")),
+        "address": _clean_client_text(data.get("address")),
+    }
+    clean_data["display_name"] = _client_display_name(clean_data)
+    if not clean_data["display_name"]:
+        raise HTTPException(status_code=400, detail="Client name is required.")
+
+    now = _now().isoformat()
+    client = Client(
+        id=str(uuid4()),
+        **clean_data,
+        created_by=user["id"],
+        updated_by=user["id"],
+        is_deleted=0,
+        created_at=now,
+        updated_at=now,
+    )
+    with _db() as db:
+        _assert_no_active_client_duplicate(db, client.pan, client.cin, client.gstin)
+        db.add(client)
+        db.commit()
+        db.refresh(client)
+        result = _serialize_client(client)
+
+    _log_history(user["id"], "CLIENT_CREATE", {"client_id": result["id"], "display_name": result["display_name"]})
+    return result
+
+@api_router.put("/clients/{client_id}")
+async def update_client(client_id: str, payload: ClientUpdate, request: Request):
+    user = await require_client_master_user(request)
+    updates = payload.model_dump(exclude_unset=True)
+    with _db() as db:
+        client = db.query(Client).filter(Client.id == client_id, Client.is_deleted == 0).first()
+        if not client:
+            raise HTTPException(status_code=404, detail="Client not found.")
+
+        if "entity_type" in updates:
+            if _is_blank(updates.get("entity_type")):
+                raise HTTPException(status_code=400, detail="entity_type is required.")
+            client.entity_type = _clean_client_text(updates.get("entity_type"))
+        for key in ("display_name", "person_name", "company_name", "address"):
+            if key in updates:
+                setattr(client, key, _clean_client_text(updates.get(key)))
+        for key in ("pan", "cin", "gstin"):
+            if key in updates:
+                setattr(client, key, _normalize_client_identifier(updates.get(key)))
+
+        effective_data = {
+            "display_name": client.display_name,
+            "company_name": client.company_name,
+            "person_name": client.person_name,
+        }
+        client.display_name = _client_display_name(effective_data)
+        if not client.display_name:
+            raise HTTPException(status_code=400, detail="Client name is required.")
+
+        _assert_no_active_client_duplicate(db, client.pan, client.cin, client.gstin, exclude_id=client_id)
+        client.updated_by = user["id"]
+        client.updated_at = _now().isoformat()
+        db.commit()
+        db.refresh(client)
+        result = _serialize_client(client)
+
+    _log_history(user["id"], "CLIENT_UPDATE", {"client_id": result["id"], "display_name": result["display_name"]})
+    return result
+
+@api_router.delete("/clients/{client_id}")
+async def delete_client(client_id: str, request: Request):
+    user = await require_client_master_user(request)
+    with _db() as db:
+        client = db.query(Client).filter(Client.id == client_id, Client.is_deleted == 0).first()
+        if not client:
+            raise HTTPException(status_code=404, detail="Client not found.")
+        client.is_deleted = 1
+        client.updated_by = user["id"]
+        client.updated_at = _now().isoformat()
+        display_name = client.display_name
+        db.commit()
+
+    _log_history(user["id"], "CLIENT_DELETE", {"client_id": client_id, "display_name": display_name})
+    return {"ok": True, "id": client_id}
 
 @api_router.get("/history")
 async def list_history(
@@ -1853,7 +2079,7 @@ async def list_history(
 # Create universal certificate
 # -----------------------------
 @api_router.post("/certificates", response_model=UniversalCertificateStored)
-async def create_certificate(payload: UniversalCertificateCreate, request: Request, background_tasks: BackgroundTasks):
+async def create_certificate(payload: UniversalCertificateCreate, request: Request):
     # Enforce ownership: temp users only create under their own account
     user = await require_user(request)
     err = validate_common(payload)
@@ -1867,6 +2093,7 @@ async def create_certificate(payload: UniversalCertificateCreate, request: Reque
             raise HTTPException(status_code=400, detail=err2)
 
     doc_data = {
+        "client_id": payload.client_id,
         "category": payload.category,
         "certificate_type": payload.certificate_type,
         "entityType": payload.entityType,
@@ -1893,7 +2120,7 @@ async def create_certificate(payload: UniversalCertificateCreate, request: Reque
         db.add(cert_obj)
         db.commit()
         
-    background_tasks.add_task(_log_history, user["id"], "CERT_CREATE", {"cert_id": stored["id"], "category": stored["category"]})
+    _log_history(user["id"], "CERT_CREATE", {"cert_id": stored["id"], "category": stored["category"]})
     return doc
 
 # -----------------------------
@@ -1943,7 +2170,7 @@ async def get_certificate(cert_id: str, request: Request):
 # Update certificate (merge-safe)
 # -----------------------------
 @api_router.put("/certificates/{cert_id}")
-async def update_certificate(cert_id: str, request: Request, background_tasks: BackgroundTasks, payload: dict = Body(...)):
+async def update_certificate(cert_id: str, request: Request, payload: dict = Body(...)):
     user = await require_user(request)
     with _db() as db:
         cert = db.query(Certificate).filter(Certificate.id == cert_id).first()
@@ -1968,14 +2195,14 @@ async def update_certificate(cert_id: str, request: Request, background_tasks: B
         cert.updated_at = updated["updated_at"]
         db.commit()
 
-    background_tasks.add_task(_log_history, user["id"], "CERT_UPDATE", {"cert_id": cert_id})
+    _log_history(user["id"], "CERT_UPDATE", {"cert_id": cert_id})
     return updated
 
 # -----------------------------
 # Delete certificate
 # -----------------------------
 @api_router.delete("/certificates/{cert_id}")
-async def delete_certificate(cert_id: str, request: Request, background_tasks: BackgroundTasks):
+async def delete_certificate(cert_id: str, request: Request):
     user = await require_user(request)
     with _db() as db:
         cert = db.query(Certificate).filter(Certificate.id == cert_id).first()
@@ -1992,7 +2219,7 @@ async def delete_certificate(cert_id: str, request: Request, background_tasks: B
         db.delete(cert)
         db.commit()
         
-    background_tasks.add_task(_log_history, user["id"], "CERT_DELETE", {"cert_id": cert_id})
+    _log_history(user["id"], "CERT_DELETE", {"cert_id": cert_id})
     return {"ok": True, "id": cert_id}
 
 cors_uses_wildcard = "*" in CORS_ALLOW_ORIGINS

@@ -1,7 +1,8 @@
 import os
 import sys
 from logging.config import fileConfig
-from sqlalchemy import engine_from_config, pool
+from pathlib import Path
+from dotenv import load_dotenv
 from alembic import context
 
 # Add backend to path so we can import our modules
@@ -9,10 +10,13 @@ from alembic import context
 # Parent of parent is backend/
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+ROOT_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(ROOT_DIR / ".env", override=False)
+
 # Import Base from database and all models to ensure they are registered on the metadata
-from database import Base
+from database import Base, create_database_engine, normalize_database_url
 # Importing all models so they are in Base.metadata
-from models import User, Certificate, History, Session, TemporaryAccess, OfficeLocation
+from models import User, Certificate, Client, History, Session, TemporaryAccess, OfficeLocation
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -28,10 +32,10 @@ if config.config_file_name is not None:
 database_url = os.getenv("DATABASE_URL")
 if not database_url:
     # Use the same default logic as in database.py
-    ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-    DATA_DIR = os.getenv("STORAGE_DIR", os.path.join(ROOT_DIR, "data"))
+    DATA_DIR = os.getenv("STORAGE_DIR", os.path.join(str(ROOT_DIR), "data"))
     DB_PATH = os.getenv("DB_PATH", os.path.join(DATA_DIR, "app.db"))
     database_url = f"sqlite:///{DB_PATH}"
+database_url = normalize_database_url(database_url)
 
 # target metadata
 target_metadata = Base.metadata
@@ -51,12 +55,7 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode."""
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-        url=database_url # Override URL here
-    )
+    connectable = create_database_engine(database_url)
 
     with connectable.connect() as connection:
         context.configure(

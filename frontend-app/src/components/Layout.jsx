@@ -1,15 +1,17 @@
 import { Outlet, Link, useLocation } from "react-router-dom";
-import { FileText, History, Settings, Home } from "lucide-react";
+import { History, Settings, Home, UsersRound } from "lucide-react";
 import logo from "../assets/logo.png";
 import { useAuth } from "../hooks/useAuth";
 
 const Layout = () => {
   const location = useLocation();
   const { user, logout, isAdmin } = useAuth();
+  const canUseClientMaster = user?.role === "admin" || user?.role === "data_executive";
   
   const navItems = [
     { path: "/", icon: Home, label: "Home" },
     { path: "/history", icon: History, label: "History" },
+    ...(canUseClientMaster ? [{ path: "/clients", icon: UsersRound, label: "Clients" }] : []),
     { path: "/settings", icon: Settings, label: "Settings" },
   ];
 

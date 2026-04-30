@@ -23,6 +23,7 @@ import {
   CardTitle,
   CardDescription,
 } from "../components/ui/card";
+import ClientSelector from "../components/ClientSelector";
 
 // Icons
 import { ArrowLeft, Trash2, Loader2, PlusCircle } from "lucide-react";
@@ -607,6 +608,29 @@ const ReraForm = () => {
     setFormState(prev => ({ ...prev, [field]: value }));
   }
 
+  const applyClient = (client) => {
+    const nextEntityType = client?.entity_type || entityType;
+    setFormState((prev) => ({
+      ...prev,
+      entityType: nextEntityType,
+      identity: {
+        ...prev.identity,
+        person_name:
+          nextEntityType === "PERSONAL"
+            ? client?.person_name || client?.display_name || ""
+            : "",
+        company_name:
+          nextEntityType === "PERSONAL"
+            ? ""
+            : client?.company_name || client?.display_name || "",
+        pan: client?.pan || "",
+        cin: client?.cin || "",
+        gstin: client?.gstin || "",
+        address: client?.address || "",
+      },
+    }));
+  };
+
   const handleInputChange = (id, type, value) => {
     setFormState(prev => ({
       ...prev,
@@ -854,6 +878,9 @@ const ReraForm = () => {
                       </option>
                     ))}
                   </select>
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                  <ClientSelector entityType={entityType} onSelect={applyClient} />
                 </div>
                 {
                   entityType === 'PERSONAL' ? (

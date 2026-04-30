@@ -2,12 +2,18 @@ import { useEffect, useMemo, useState } from "react";
 import api from "../lib/api";
 
 const HOURS_OPTIONS = [6, 12, 24, 48, 0];
+const ROLE_OPTIONS = [
+  { value: "temporary", label: "Temporary Employee" },
+  { value: "staff", label: "Staff Employee" },
+  { value: "data_executive", label: "Data Executive" },
+];
 
 const AdminCredentials = () => {
   const [username, setUsername] = useState("");
   const [fullName, setFullName] = useState("");
   const [password, setPassword] = useState("");
   const [hours, setHours] = useState(12);
+  const [role, setRole] = useState("temporary");
   const [canManageCertificates, setCanManageCertificates] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createResult, setCreateResult] = useState(null);
@@ -168,6 +174,7 @@ const AdminCredentials = () => {
       const payload = {
         username: username.trim(),
         expires_in_hours: Number(hours),
+        role,
         can_manage_certificates: canManageCertificates,
       };
       if (fullName.trim()) {
@@ -181,6 +188,7 @@ const AdminCredentials = () => {
       setUsername("");
       setFullName("");
       setPassword("");
+      setRole("temporary");
       setCanManageCertificates(false);
       await loadList();
     } catch (err) {
@@ -361,6 +369,24 @@ const AdminCredentials = () => {
             </div>
 
             <div>
+              <label className="text-sm text-foreground">Role</label>
+              <select
+                className="mt-2 w-full rounded-md border border-border bg-background px-3 py-2"
+                value={role}
+                onChange={(e) => setRole(e.target.value)}
+              >
+                {ROLE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Data Executive can manage clients and must pass office location checks.
+              </p>
+            </div>
+
+            <div>
               <label className="text-sm text-foreground">Expires In</label>
               <div className="mt-2 flex flex-wrap gap-2">
                 {HOURS_OPTIONS.map((opt) => (
@@ -406,6 +432,7 @@ const AdminCredentials = () => {
           {createResult ? (
             <div className="mt-4 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-3 text-sm text-emerald-700">
               <div>Username: <span className="font-medium">{createResult.user?.username}</span></div>
+              <div>Role: <span className="font-medium">{createResult.user?.role}</span></div>
               <div>Temporary Password: <span className="font-medium">{createResult.temporary_password}</span></div>
               <div>Expires At: <span className="font-medium">{createResult.expires_at}</span></div>
               <div>
@@ -460,6 +487,7 @@ const AdminCredentials = () => {
               <thead>
                 <tr className="text-left text-muted-foreground border-b border-border">
                   <th className="py-2 pr-4">Username</th>
+                  <th className="py-2 pr-4">Role</th>
                   <th className="py-2 pr-4">Expires</th>
                   <th className="py-2 pr-4">Status</th>
                   <th className="py-2 text-right">Action</th>
@@ -468,13 +496,13 @@ const AdminCredentials = () => {
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan="4" className="py-6 text-center text-muted-foreground">
+                    <td colSpan="5" className="py-6 text-center text-muted-foreground">
                       Loading…
                     </td>
                   </tr>
                 ) : items.length === 0 ? (
                   <tr>
-                    <td colSpan="4" className="py-6 text-center text-muted-foreground">
+                    <td colSpan="5" className="py-6 text-center text-muted-foreground">
                       No credentials found.
                     </td>
                   </tr>
@@ -482,6 +510,7 @@ const AdminCredentials = () => {
                   items.map((item) => (
                     <tr key={item.id} className="border-b border-border/60">
                       <td className="py-3 pr-4 text-foreground">{item.username}</td>
+                      <td className="py-3 pr-4 text-muted-foreground">{item.role || "temporary"}</td>
                       <td className="py-3 pr-4 text-muted-foreground">{item.expires_at || "—"}</td>
                       <td className="py-3 pr-4">
                         {item.is_revoked ? (

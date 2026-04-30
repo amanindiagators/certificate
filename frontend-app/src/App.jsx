@@ -6,6 +6,7 @@ import TurnoverForm from "./pages/TurnoverForm";
 import CertificatePreview from "./pages/CertificatePreview";
 import History from "./pages/History";
 import Settings from "./pages/Settings";
+import Clients from "./pages/Clients";
 import UploadCertificates from "./pages/UploadCertificates";
 import Layout from "./components/Layout";
 import { Toaster } from "./components/ui/sonner";
@@ -70,6 +71,7 @@ function App() {
               {/* Others */}
               <Route path="certificate/:id" element={<CertificatePreview />} />
               <Route path="history" element={<History />} />
+              <Route path="clients" element={<Clients />} />
               <Route path="settings" element={<Settings />} />
 
               <Route

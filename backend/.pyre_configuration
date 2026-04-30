@@ -1,0 +1,10 @@
+{
+  "source_directories": [
+    "."
+  ],
+  "site_package_search_strategy": "all",
+  "search_path": [
+    ".",
+    "C:/Users/amani/AppData/Local/Python/pythoncore-3.14-64/Lib/site-packages"
+  ]
+}

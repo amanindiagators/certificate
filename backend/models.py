@@ -1,6 +1,9 @@
 from sqlalchemy import Column, String, Integer, Float, ForeignKey, Text, Boolean
 from sqlalchemy.orm import relationship
-from database import Base
+try:
+    from .database import Base
+except ImportError:
+    from database import Base
 from datetime import datetime, timezone
 
 def _now_iso():
@@ -78,6 +81,24 @@ class Certificate(Base):
     updated_at = Column(String, default=_now_iso, nullable=False)
 
     user = relationship("User", back_populates="certificates")
+
+class Client(Base):
+    __tablename__ = "clients"
+
+    id = Column(String, primary_key=True)
+    entity_type = Column(String, nullable=False, index=True)
+    display_name = Column(String, nullable=False, index=True)
+    person_name = Column(String)
+    company_name = Column(String)
+    pan = Column(String, index=True)
+    cin = Column(String, index=True)
+    gstin = Column(String, index=True)
+    address = Column(Text)
+    created_by = Column(String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    updated_by = Column(String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    is_deleted = Column(Integer, default=0, nullable=False, index=True)
+    created_at = Column(String, default=_now_iso, nullable=False, index=True)
+    updated_at = Column(String, default=_now_iso, nullable=False)
 
 class OfficeLocation(Base):
     __tablename__ = "office_locations"

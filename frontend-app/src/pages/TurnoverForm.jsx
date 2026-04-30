@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import ClientSelector from "../components/ClientSelector";
 import { ArrowLeft, Save, Plus, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -406,6 +407,31 @@ export default function TurnoverForm() {
   const visibleFields = useMemo(() => ENTITY_FIELD_RULES[entityType] || [], [entityType]);
   const update = (key, value) => setForm((p) => ({ ...p, [key]: value }));
 
+  const applyClient = (client) => {
+    const nextEntityType = client?.entity_type || entityType;
+    const clientName = client?.company_name || client?.display_name || "";
+    const personName = client?.person_name || client?.display_name || "";
+    setEntityType(nextEntityType);
+    setForm((prev) => ({
+      ...prev,
+      personName: nextEntityType === "PERSONAL" ? personName : "",
+      firmName: nextEntityType === "PROPRIETORSHIP" ? clientName : "",
+      proprietorName: nextEntityType === "PROPRIETORSHIP" ? client?.person_name || "" : "",
+      companyName:
+        nextEntityType === "PRIVATE_LIMITED" || nextEntityType === "PUBLIC_LIMITED"
+          ? clientName
+          : "",
+      entityName:
+        ["TRUST", "NGO", "SOCIETY", "GOVERNMENT", "COLLEGE"].includes(nextEntityType)
+          ? clientName || personName
+          : "",
+      pan: client?.pan || "",
+      cin: client?.cin || "",
+      gstin: client?.gstin || "",
+      address: client?.address || "",
+    }));
+  };
+
   const updateRow = (idx, key, value) => {
     setForm((p) => {
       const next = [...(p.turnoverRows || [])];
@@ -667,6 +693,8 @@ export default function TurnoverForm() {
                     ))}
                   </select>
                 </div>
+
+                <ClientSelector entityType={entityType} onSelect={applyClient} />
 
                 <div className="grid md:grid-cols-2 gap-6">
                   {visibleFields.map((fieldKey) => (

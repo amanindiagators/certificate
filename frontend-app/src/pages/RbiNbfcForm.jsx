@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import ClientSelector from "../components/ClientSelector";
 import { ArrowLeft, Save, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -143,6 +144,9 @@ function defaultForm() {
   return {
     companyName: "",
     certificateOfRegistrationNo: "",
+    cin: "",
+    pan: "",
+    gstin: "",
     registeredOfficeAddress: "",
     corporateOfficeAddress: "",
     rbiClassification: "",
@@ -322,9 +326,9 @@ function buildUniversalPayload({ entityType, form }) {
       legal_type: "",
       reg_no: String(form.certificateOfRegistrationNo || "").trim(),
       department: "",
-      pan: "",
-      cin: "",
-      gstin: "",
+      pan: String(form.pan || "").trim(),
+      cin: String(form.cin || "").trim(),
+      gstin: String(form.gstin || "").trim(),
       address: String(form.registeredOfficeAddress || "").trim(),
     },
     meta: {
@@ -370,6 +374,9 @@ function universalCertToForm(cert) {
     ...defaultForm(),
     companyName: identity?.company_name || "",
     certificateOfRegistrationNo: identity?.reg_no || "",
+    cin: identity?.cin || "",
+    pan: identity?.pan || "",
+    gstin: identity?.gstin || "",
     registeredOfficeAddress: identity?.address || "",
     purpose: meta?.purpose || "",
     place: meta?.place || "",
@@ -623,6 +630,19 @@ export default function RbiNbfcForm() {
 
   const update = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
 
+  const applyClient = (client) => {
+    const nextEntityType = client?.entity_type || entityType;
+    setEntityType(nextEntityType);
+    setForm((prev) => ({
+      ...prev,
+      companyName: client?.company_name || client?.display_name || "",
+      cin: client?.cin || "",
+      pan: client?.pan || "",
+      gstin: client?.gstin || "",
+      registeredOfficeAddress: client?.address || "",
+    }));
+  };
+
   const selectedFinancialYear = useMemo(
     () => extractFinancialYearEndYear(form.financialYearEnd),
     [form.financialYearEnd]
@@ -833,6 +853,8 @@ export default function RbiNbfcForm() {
                   </select>
                 </div>
 
+                <ClientSelector entityType={entityType} onSelect={applyClient} />
+
                 <div className="grid md:grid-cols-2 gap-6">
                   <div>
                     <Label>Company Name *</Label>
@@ -845,6 +867,18 @@ export default function RbiNbfcForm() {
                       value={form.certificateOfRegistrationNo}
                       onChange={(e) => update("certificateOfRegistrationNo", e.target.value)}
                     />
+                  </div>
+                  <div>
+                    <Label>CIN (if required)</Label>
+                    <Input className="mt-2" value={form.cin} onChange={(e) => update("cin", e.target.value)} />
+                  </div>
+                  <div>
+                    <Label>PAN (if required)</Label>
+                    <Input className="mt-2" value={form.pan} onChange={(e) => update("pan", e.target.value)} />
+                  </div>
+                  <div>
+                    <Label>GSTIN (if required)</Label>
+                    <Input className="mt-2" value={form.gstin} onChange={(e) => update("gstin", e.target.value)} />
                   </div>
                   <div>
                     <Label>Financial Year Ending *</Label>

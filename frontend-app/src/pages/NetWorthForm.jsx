@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import ClientSelector from "../components/ClientSelector";
 import { ArrowLeft, Save, Trash2, Plus } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -792,6 +793,26 @@ export default function NetWorthForm() {
 
   const update = (key, value) => setForm((p) => ({ ...p, [key]: value }));
 
+  const applyClient = (client) => {
+    const nextEntityType = client?.entity_type || entityType;
+    setEntityType(nextEntityType);
+    setForm((prev) => ({
+      ...prev,
+      personName:
+        nextEntityType === "PERSONAL"
+          ? client?.person_name || client?.display_name || ""
+          : "",
+      companyName:
+        nextEntityType === "PERSONAL"
+          ? ""
+          : client?.company_name || client?.display_name || "",
+      pan: client?.pan || "",
+      cin: client?.cin || "",
+      gstin: client?.gstin || "",
+      address: client?.address || "",
+    }));
+  };
+
   // row helpers
   const updateRow = async (key, idx, field, value) => {
     setForm((p) => {
@@ -1041,6 +1062,8 @@ export default function NetWorthForm() {
                     ))}
                   </select>
                 </div>
+
+                <ClientSelector entityType={entityType} onSelect={applyClient} />
 
                 {isPersonal ? (
                   <div className="grid md:grid-cols-2 gap-6">

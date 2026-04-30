@@ -23,6 +23,7 @@ import {
   CardTitle,
   CardDescription,
 } from "../components/ui/card";
+import ClientSelector from "../components/ClientSelector";
 import {
   clearDraft,
   loadDraftWithTTL,
@@ -953,6 +954,23 @@ const ReraForm7 = () => {
     }));
   };
 
+  const applyClient = (client) => {
+    const clientName = client?.company_name || client?.display_name || client?.person_name || "";
+    setFormState((prev) => ({
+      ...prev,
+      promoterDetails: {
+        ...prev.promoterDetails,
+        registrationNumber: client?.cin || client?.gstin || client?.pan || prev.promoterDetails.registrationNumber,
+        firmName: clientName,
+        firmAddress: client?.address || "",
+      },
+      projectDetails: {
+        ...prev.projectDetails,
+        nameOfPromoter: clientName,
+      },
+    }));
+  };
+
   const handleSubmit = async () => {
     setIsSubmitting(true);
 
@@ -1092,6 +1110,7 @@ const ReraForm7 = () => {
             <CardTitle>I. PARTICULARS OF PROMOTERS</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-6 pt-6">
+            <ClientSelector onSelect={applyClient} />
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Promoter's Reg No / CIN / Partnership Deed / LLP</Label>

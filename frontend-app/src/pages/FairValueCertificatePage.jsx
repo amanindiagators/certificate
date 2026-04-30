@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import ClientSelector from "../components/ClientSelector";
 import { ArrowLeft, Trash2, Upload, FileText, Plus } from "lucide-react";
 import { toast } from "sonner";
 import * as pdfjsLib from 'pdfjs-dist';
@@ -116,6 +117,15 @@ export default function FairValueCertificatePage() {
     }, [isEdit, id]);
 
     const update = (key, val) => setForm(p => ({ ...p, [key]: val }));
+
+    const applyClient = (client) => {
+        setForm((prev) => ({
+            ...prev,
+            company_name: client?.company_name || client?.display_name || "",
+            cin: client?.cin || "",
+            registered_address: client?.address || "",
+        }));
+    };
 
     const updateDirector = (idx, key, val) => {
         setForm(prev => {
@@ -317,6 +327,9 @@ export default function FairValueCertificatePage() {
                                         <h2 className="text-xl font-display font-bold">Company Identity</h2>
                                     </div>
                                     <div className="grid grid-cols-2 gap-5">
+                                        <div className="col-span-2">
+                                            <ClientSelector onSelect={applyClient} />
+                                        </div>
                                         <div className="col-span-2">
                                             <Label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Legal Name of Company</Label>
                                             <Input className="mt-1.5 h-12 bg-slate-50 border-slate-200 focus:bg-white" value={form.company_name} onChange={e => update("company_name", e.target.value)} required />
