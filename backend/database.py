@@ -34,6 +34,13 @@ def normalize_database_url(database_url: str) -> str:
     database_url = (database_url or "").strip()
     if database_url.startswith("libsql://"):
         database_url = f"sqlite+libsql://{database_url[len('libsql://'):]}"
+    if database_url.startswith("sqlite+libsql://"):
+        prefix = "sqlite+libsql://"
+        rest = database_url[len(prefix):]
+        base = rest.split("?", 1)[0]
+        if base and not base.startswith("/") and "/" not in base:
+            query = f"?{rest.split('?', 1)[1]}" if "?" in rest else ""
+            database_url = f"{prefix}{base}/{query}"
     if database_url.startswith("sqlite+libsql://") and "?" not in database_url and "://" in database_url:
         return f"{database_url}?secure=true"
     return database_url
@@ -53,6 +60,7 @@ def create_database_engine(database_url: str):
         return create_engine(
             database_url,
             pool_pre_ping=True,
+            connect_args={"auth_token": auth_token} if auth_token else {},
         )
 
     if database_url.startswith("sqlite"):
