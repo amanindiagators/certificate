@@ -3,6 +3,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
+from urllib.parse import quote
 
 # Base directory
 ROOT_DIR = Path(__file__).parent
@@ -46,11 +47,12 @@ def create_database_engine(database_url: str):
 
     if database_url.startswith("sqlite+libsql://"):
         auth_token = os.getenv("TURSO_AUTH_TOKEN")
-        connect_args = {"auth_token": auth_token} if auth_token else {}
+        if auth_token and "authToken=" not in database_url:
+            separator = "&" if "?" in database_url else "?"
+            database_url = f"{database_url}{separator}authToken={quote(auth_token, safe='')}"
         return create_engine(
             database_url,
             pool_pre_ping=True,
-            connect_args=connect_args,
         )
 
     if database_url.startswith("sqlite"):
