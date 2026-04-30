@@ -5,12 +5,11 @@
   "main": "index.js",
   "scripts": {
     "dev:backend": "cd backend && python -m uvicorn server:app --reload",
-    "dev:frontend": "cd frontend-app && npm.cmd run dev",
+    "dev:frontend": "cd frontend-app && npm run dev",
     "dev": "concurrently -k -p \"[{name}]\" -n \"backend,frontend\" -c \"cyan,magenta\" \"npm run dev:backend\" \"npm run dev:frontend\"",
-    "build:frontend": "cd frontend-app && npm.cmd run build",
+    "build:frontend": "cd frontend-app && npm run build",
     "build": "npm run build:frontend",
-    "clean": "powershell -Command \"Get-NetTCPConnection -LocalPort 3000, 8000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }\"",
-    "start": "npm run clean && npm run dev"
+    "start": "npm run dev"
   },
   "keywords": [],
   "author": "",
