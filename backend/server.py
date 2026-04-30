@@ -179,7 +179,7 @@ def generate_lod_docx(data: dict) -> bytes:
     return buf.read()
 
 
-ENVIRONMENT = (os.getenv("ENVIRONMENT") or "development").strip().lower()
+ENVIRONMENT = (os.getenv("ENVIRONMENT") or os.getenv("VERCEL_ENV") or "development").strip().lower()
 IS_PRODUCTION = ENVIRONMENT in {"prod", "production"}
 
 DATA_DIR = Path(os.getenv("STORAGE_DIR", str(ROOT_DIR / "data")))

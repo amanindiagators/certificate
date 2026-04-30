@@ -12,7 +12,7 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env", override=False)
 
 # Environment detection
-ENVIRONMENT = (os.getenv("ENVIRONMENT") or "development").strip().lower()
+ENVIRONMENT = (os.getenv("ENVIRONMENT") or os.getenv("VERCEL_ENV") or "development").strip().lower()
 IS_PRODUCTION = ENVIRONMENT in {"prod", "production"}
 
 def _resolve_database_url() -> str:
