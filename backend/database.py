@@ -22,10 +22,11 @@ def _resolve_database_url() -> str:
         return database_url.strip()
 
     if IS_PRODUCTION:
-        raise RuntimeError("DATABASE_URL or TURSO_DATABASE_URL is required in production.")
+        raise RuntimeError("DATABASE_URL or TURSO_DATABASE_URL is missing in Vercel settings.")
 
     DATA_DIR = Path(os.getenv("STORAGE_DIR", str(ROOT_DIR / "data")))
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    if not IS_PRODUCTION:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
     DB_PATH = Path(os.getenv("DB_PATH", str(DATA_DIR / "app.db")))
     return f"sqlite:///{DB_PATH}"
 
