@@ -6,10 +6,10 @@
       "use": "@vercel/python"
     },
     {
-      "src": "frontend-app/package.json",
+      "src": "package.json",
       "use": "@vercel/static-build",
       "config": {
-        "distDir": "build"
+        "distDir": "frontend-app/build"
       }
     }
   ],
@@ -20,7 +20,7 @@
     },
     {
       "source": "/(.*)",
-      "destination": "/index.html"
+      "destination": "/$1"
     }
   ]
 }
