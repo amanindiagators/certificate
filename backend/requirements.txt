@@ -8,8 +8,8 @@ pandas
 openpyxl
 openlocationcode
 sqlalchemy
-libsql
 sqlalchemy-libsql
+libsql-client
 alembic
 httpx
 python-docx
