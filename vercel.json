@@ -1,4 +1,5 @@
 {
+  "version": 2,
   "builds": [
     {
       "src": "backend/server.py",
@@ -22,7 +23,7 @@
     },
     {
       "src": "/(.*)",
-      "dest": "/index.html"
+      "dest": "/$1"
     }
   ]
 }
