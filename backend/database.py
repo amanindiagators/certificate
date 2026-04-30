@@ -21,7 +21,7 @@ def _resolve_database_url() -> str:
         return database_url.strip()
 
     if IS_PRODUCTION:
-        raise RuntimeError("DATABASE_URL is required in production.")
+        raise RuntimeError("DATABASE_URL or TURSO_DATABASE_URL is required in production.")
 
     DATA_DIR = Path(os.getenv("STORAGE_DIR", str(ROOT_DIR / "data")))
     DATA_DIR.mkdir(parents=True, exist_ok=True)

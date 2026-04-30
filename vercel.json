@@ -1,15 +1,14 @@
 {
-  "version": 2,
   "builds": [
     {
       "src": "backend/server.py",
       "use": "@vercel/python"
     },
     {
-      "src": "package.json",
+      "src": "frontend-app/package.json",
       "use": "@vercel/static-build",
       "config": {
-        "distDir": "frontend-app/build"
+        "distDir": "build"
       }
     }
   ],
@@ -20,7 +19,7 @@
     },
     {
       "source": "/(.*)",
-      "destination": "/$1"
+      "destination": "/index.html"
     }
   ]
 }

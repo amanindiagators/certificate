@@ -29,7 +29,7 @@ if config.config_file_name is not None:
 
 # Set the sqlalchemy.url from environment or default to SQLite
 # Preference order: DATABASE_URL env > hardcoded default
-database_url = os.getenv("DATABASE_URL")
+database_url = os.getenv("DATABASE_URL") or os.getenv("TURSO_DATABASE_URL")
 if not database_url:
     # Use the same default logic as in database.py
     DATA_DIR = os.getenv("STORAGE_DIR", os.path.join(str(ROOT_DIR), "data"))
