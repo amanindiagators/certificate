@@ -32,7 +32,9 @@ def _resolve_database_url() -> str:
 def normalize_database_url(database_url: str) -> str:
     database_url = (database_url or "").strip()
     if database_url.startswith("libsql://"):
-        return f"sqlite+libsql://{database_url[len('libsql://'):]}"
+        database_url = f"sqlite+libsql://{database_url[len('libsql://'):]}"
+    if database_url.startswith("sqlite+libsql://") and "?" not in database_url and "://" in database_url:
+        return f"{database_url}?secure=true"
     return database_url
 
 
