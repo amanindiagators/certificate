@@ -77,10 +77,15 @@ def create_database_engine(database_url: str):
         elif auth_token:
             database_url = f"{database_url}?authToken={auth_token}"
 
+        # Some versions of the driver prefer it in connect_args, others in the URL.
+        # We provide it in both to be safe.
         return create_engine(
             database_url,
             pool_pre_ping=True,
-            connect_args={"check_same_thread": False},
+            connect_args={
+                "check_same_thread": False,
+                "auth_token": auth_token
+            },
         )
 
     if database_url.startswith("sqlite"):
