@@ -398,58 +398,6 @@ def _init_db() -> None:
     except ImportError:
         from database import Base
     Base.metadata.create_all(bind=engine)
-                doc[k] = datetime.fromisoformat(doc[k])
-            except Exception:
-                pass
-    return doc
-
-def _parse_dt(value: Optional[str]) -> Optional[datetime]:
-    if not value or not isinstance(value, str):
-        return None
-    try:
-        return datetime.fromisoformat(value)
-    except Exception:
-        return None
-
-def _is_expired(expires_at: Optional[str]) -> bool:
-    dt = _parse_dt(expires_at)
-    if not dt:
-        return False
-    return _now() >= dt
-
-def _hash_password(password: str) -> str:
-    iterations = 120_000
-    salt = os.urandom(16)
-    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
-    return "pbkdf2_sha256${}${}${}".format(
-        iterations,
-        base64.b64encode(salt).decode("utf-8"),
-        base64.b64encode(dk).decode("utf-8"),
-    )
-
-def _verify_password(password: str, stored: str) -> bool:
-    try:
-        algo, iterations_str, salt_b64, hash_b64 = stored.split("$", 3)
-        if algo != "pbkdf2_sha256":
-            return False
-        iterations = int(iterations_str)
-        salt = base64.b64decode(salt_b64.encode("utf-8"))
-        expected = base64.b64decode(hash_b64.encode("utf-8"))
-        dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
-        return hmac.compare_digest(dk, expected)
-    except Exception:
-        return False
-
-def _new_token() -> str:
-    return secrets.token_urlsafe(32)
-
-def _random_password() -> str:
-    return secrets.token_urlsafe(12)
-
-def _is_blank(v: Optional[str]) -> bool:
-    return not (v or "").strip()
-
-
 # -----------------------------
 # Universal models
 # -----------------------------
