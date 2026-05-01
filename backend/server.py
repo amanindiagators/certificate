@@ -273,8 +273,6 @@ def _parse_allowed_hosts() -> List[str]:
 def _validate_password_strength(password: str) -> Optional[str]:
     if len(password) < 8:
         return "Password must be at least 8 characters."
-    if len(password) > 16:
-        return "Password must be at most 16 characters."
     return None
 
 LOGIN_RATE_LIMIT_ATTEMPTS = _env_int("LOGIN_RATE_LIMIT_ATTEMPTS", 5, 1)
