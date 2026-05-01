@@ -3,6 +3,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 # Base directory
 ROOT_DIR = Path(__file__).parent
@@ -17,11 +18,7 @@ IS_PRODUCTION = ENVIRONMENT in {"prod", "production"}
 
 def _resolve_database_url() -> str:
     turso_database_url = (os.getenv("TURSO_DATABASE_URL") or "").strip()
-    turso_auth_token = (os.getenv("TURSO_AUTH_TOKEN") or "").strip()
     database_url = (os.getenv("DATABASE_URL") or "").strip()
-
-    if turso_database_url and turso_auth_token:
-        return turso_database_url
 
     if database_url:
         return database_url
@@ -62,7 +59,23 @@ def create_database_engine(database_url: str):
         raise RuntimeError("File-based SQLite is not allowed in production. Set DATABASE_URL to Turso/libSQL.")
 
     if database_url.startswith("sqlite+libsql://"):
+        parts = urlsplit(database_url)
         auth_token = (os.getenv("TURSO_AUTH_TOKEN") or "").strip()
+        filtered_query = []
+        for key, value in parse_qsl(parts.query, keep_blank_values=True):
+            if key == "authToken":
+                auth_token = auth_token or value
+                continue
+            filtered_query.append((key, value))
+        database_url = urlunsplit(
+            (
+                parts.scheme,
+                parts.netloc,
+                parts.path,
+                urlencode(filtered_query),
+                parts.fragment,
+            )
+        )
         return create_engine(
             database_url,
             pool_pre_ping=True,
