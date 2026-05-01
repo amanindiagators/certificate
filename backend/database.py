@@ -20,6 +20,9 @@ def _resolve_database_url() -> str:
     database_url = (os.getenv("DATABASE_URL") or "").strip()
 
     if database_url:
+        # Ensure it has the correct prefix for sqlalchemy-libsql
+        if database_url.startswith("libsql://"):
+            database_url = database_url.replace("libsql://", "sqlite+libsql://")
         return database_url
 
     if IS_PRODUCTION:

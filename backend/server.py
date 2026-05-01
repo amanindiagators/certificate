@@ -1467,11 +1467,22 @@ app = FastAPI(
 )
 api_router = APIRouter(prefix="/api")
 
+@api_router.get("/health")
+def health_check():
+    return {"status": "alive", "environment": ENVIRONMENT}
+
 @app.on_event("startup")
 async def startup_event():
-    _init_db()
-    await _ensure_admin_user()
-    # Warmup caches and prune sessions in background, not blocking startup
+    try:
+        logging.info("Starting up FastAPI application...")
+        _init_db()
+        await _ensure_admin_user()
+    except Exception as e:
+        logging.error(f"FATAL STARTUP ERROR: {str(e)}")
+        # In serverless, we sometimes want to catch this so the function 
+        # doesn't just loop-crash, but Vercel logs will show the error.
+    
+    # Warmup caches in background
     asyncio.create_task(asyncio.to_thread(_get_office_locations_cached))
     asyncio.create_task(asyncio.to_thread(_prune_expired_sessions))
 
