@@ -1621,22 +1621,40 @@ async def auth_login(payload: AuthLoginRequest, request: Request):
     _enforce_login_rate_limit(rate_limit_key)
 
     try:
+        logging.info(f"Login attempt for: {email}")
         user = _get_user_by_email(email)
         if not user:
+            logging.warning(f"Login failed: User {email} not found.")
             raise HTTPException(status_code=401, detail="Invalid email or password.")
 
+        logging.info(f"User found: {user.get('id')}. Verifying password...")
         if user.get("role") == "admin":
-            if not await asyncio.to_thread(_verify_password, payload.password, user.get("password_hash") or ""):
+            is_valid = await asyncio.to_thread(_verify_password, payload.password, user.get("password_hash") or "")
+            if not is_valid:
+                logging.warning(f"Login failed: Invalid password for admin {email}")
                 raise HTTPException(status_code=401, detail="Invalid email or password.")
 
+            logging.info("Password verified. Creating session...")
             token_hours = int(os.getenv("TOKEN_TTL_HOURS", "12"))
             token_expires = _now() + timedelta(hours=token_hours)
-            # Pruned in background
+            
             session = _create_session(user["id"], None, token_expires)
+            logging.info(f"Session created: {session.get('id')}")
+
             _clear_login_rate_limit(rate_limit_key)
-            _log_history(user["id"], "LOGIN", {"email": email, "role": "admin"})
+            
+            try:
+                _log_history(user["id"], "LOGIN", {"email": email, "role": "admin"})
+            except Exception as e:
+                logging.error(f"Non-fatal error logging history: {e}")
+
             resp_dict = {"token": str(session.get("token") or ""), "user": _sanitize_user(user)}
             return AuthLoginResponse.model_validate(resp_dict)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"CRITICAL LOGIN ERROR: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal login error: {str(e)}")
 
         # Temporary user login: must match an active temp access entry
         access, reason = await asyncio.to_thread(_find_temp_access_for_login, user["id"], payload.password)
