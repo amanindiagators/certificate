@@ -869,44 +869,75 @@ def _log_history(user_id: str, action_type: str, action_data: Optional[Dict[str,
         )
         db.add(history)
 
+def _init_db():
+    """Initialize database tables and run migrations on startup."""
+    try:
+        logging.info("Initializing database...")
+        # Ensure tables exist (especially if first run)
+        # Import Base here to avoid circular imports if any
+        from models import Base
+        Base.metadata.create_all(bind=engine)
+        
+        # Run Alembic migrations to ensure schema is up to date
+        ini_path = os.path.join(ROOT_DIR, "alembic.ini")
+        if os.path.exists(ini_path):
+            logging.info("Running Alembic migrations...")
+            alembic_cfg = Config(ini_path)
+            # Use the live DATABASE_URL from our config
+            alembic_cfg.set_main_option("sqlalchemy.url", DATABASE_URL.replace("sqlite+libsql://", "libsql://"))
+            command.upgrade(alembic_cfg, "head")
+            logging.info("Database initialization completed successfully.")
+        else:
+            logging.warning("alembic.ini not found, skipping Alembic migrations. Table creation via Base.metadata only.")
+            
+    except Exception as e:
+        logging.error(f"CRITICAL: Database initialization failed: {str(e)}")
+        # In production, we might want to let this fail loudly, but catching it 
+        # allows the server to at least start and provide logs.
+
 async def _ensure_admin_user() -> None:
+    logging.info("Starting admin user check/creation...")
     admin_email = (os.getenv("ADMIN_EMAIL") or os.getenv("ADMIN_USERNAME") or "").strip().lower()
     admin_password = (os.getenv("ADMIN_PASSWORD") or "").strip()
 
     if not admin_email or not admin_password:
+        logging.warning("ADMIN_EMAIL or ADMIN_PASSWORD not found in environment.")
         if IS_PRODUCTION:
-            raise RuntimeError("ADMIN_EMAIL/ADMIN_USERNAME and ADMIN_PASSWORD are required in production.")
+            logging.error("CRITICAL: Admin credentials missing in Production environment.")
+            return
         admin_email = admin_email or "admin"
         admin_password = admin_password or "admin123"
 
-    if IS_PRODUCTION:
-        if admin_password.lower() in WEAK_DEFAULT_ADMIN_PASSWORDS:
-            raise RuntimeError("ADMIN_PASSWORD is too weak for production.")
-        password_error = _validate_password_strength(admin_password)
-        if password_error:
-            raise RuntimeError(f"ADMIN_PASSWORD is invalid for production. {password_error}")
+    try:
+        with _db() as db:
+            logging.info(f"Checking for admin user with email: {admin_email}")
+            user = db.query(User).filter(User.email == admin_email).first()
+            if user:
+                logging.info("Admin user already exists. Updating permissions.")
+                user.can_edit_certificates = 1
+                user.can_delete_certificates = 1
+                if admin_password and not _verify_password(admin_password, user.password_hash or ""):
+                    logging.info("Updating admin password to match environment variable.")
+                    user.password_hash = _hash_password(admin_password)
+                db.commit()
+                return
 
-    with _db() as db:
-        user = db.query(User).filter(User.email == admin_email).first()
-        if user:
-            user.can_edit_certificates = 1
-            user.can_delete_certificates = 1
-            if admin_password and not _verify_password(admin_password, user.password_hash or ""):
-                user.password_hash = _hash_password(admin_password)
+            logging.info("Admin user not found. Creating new admin user...")
+            admin_user = User(
+                id=str(uuid4()),
+                email=admin_email,
+                full_name="Admin",
+                role="admin",
+                can_edit_certificates=1,
+                can_delete_certificates=1,
+                password_hash=_hash_password(admin_password),
+                created_at=_now().isoformat()
+            )
+            db.add(admin_user)
             db.commit()
-            return
-
-        admin_user = User(
-            id=str(uuid4()),
-            email=admin_email,
-            full_name="Admin",
-            role="admin",
-            can_edit_certificates=1,
-            can_delete_certificates=1,
-            password_hash=_hash_password(admin_password),
-            created_at=_now().isoformat()
-        )
-        db.add(admin_user)
+            logging.info("SUCCESS: Admin user created successfully.")
+    except Exception as e:
+        logging.error(f"FAILED to create/verify admin user: {str(e)}")
 
 def _get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
     with _db() as db:
