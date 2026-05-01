@@ -883,6 +883,8 @@ async def _ensure_admin_user() -> None:
         if user:
             user.can_edit_certificates = 1
             user.can_delete_certificates = 1
+            if admin_password and not _verify_password(admin_password, user.password_hash or ""):
+                user.password_hash = _hash_password(admin_password)
             db.commit()
             return
 
