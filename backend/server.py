@@ -269,8 +269,8 @@ def _parse_allowed_hosts() -> List[str]:
     return hosts
 
 def _validate_password_strength(password: str) -> Optional[str]:
-    if len(password) < 12:
-        return "Password must be at least 12 characters."
+    if len(password) < 8:
+        return "Password must be at least 8 characters."
     if not any(ch.isupper() for ch in password):
         return "Password must contain at least one uppercase letter."
     if not any(ch.islower() for ch in password):
