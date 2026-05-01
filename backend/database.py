@@ -3,7 +3,6 @@ from pathlib import Path
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
-from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 # Base directory
 ROOT_DIR = Path(__file__).parent
@@ -63,12 +62,7 @@ def create_database_engine(database_url: str):
         raise RuntimeError("File-based SQLite is not allowed in production. Set DATABASE_URL to Turso/libSQL.")
 
     if database_url.startswith("sqlite+libsql://"):
-        auth_token = os.getenv("TURSO_AUTH_TOKEN")
-        if auth_token:
-            parts = urlsplit(database_url)
-            query = [(key, value) for key, value in parse_qsl(parts.query, keep_blank_values=True) if key != "authToken"]
-            query.append(("authToken", auth_token))
-            database_url = urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query, quote_via=quote), parts.fragment))
+        auth_token = (os.getenv("TURSO_AUTH_TOKEN") or "").strip()
         return create_engine(
             database_url,
             pool_pre_ping=True,
