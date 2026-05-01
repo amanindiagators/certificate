@@ -66,19 +66,17 @@ def create_database_engine(database_url: str):
             or ""
         ).strip()
         
-        # Ensure the URL is clean and doesn't contain a duplicate authToken in query
+        # Clean the URL - remove any manually appended authToken
         if "?" in database_url:
             base, query = database_url.split("?", 1)
             params = dict(parse_qsl(query))
             params.pop("authToken", None)
-            if auth_token:
-                params["authToken"] = auth_token
-            database_url = f"{base}?{urlencode(params)}"
-        elif auth_token:
-            database_url = f"{database_url}?authToken={auth_token}"
+            if params:
+                database_url = f"{base}?{urlencode(params)}"
+            else:
+                database_url = base
 
-        # Some versions of the driver prefer it in connect_args, others in the URL.
-        # We provide it in both to be safe.
+        # Use connect_args for the token - this is the cleanest way
         return create_engine(
             database_url,
             pool_pre_ping=True,
