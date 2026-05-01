@@ -22,12 +22,14 @@ from pydantic import BaseModel, Field, ConfigDict
 from fastapi.responses import Response
 from sqlalchemy.orm import Session as DBSession
 try:
-    from .database import engine, SessionLocal, get_db
+    from .database import engine, SessionLocal, get_db, DATABASE_URL
     from .models import User, Certificate, Client, History, Session as SessionModel, TemporaryAccess, OfficeLocation
 except ImportError:
-    from database import engine, SessionLocal, get_db
+    from database import engine, SessionLocal, get_db, DATABASE_URL
     from models import User, Certificate, Client, History, Session as SessionModel, TemporaryAccess, OfficeLocation
 from sqlalchemy import text, inspect, or_, func
+from alembic.config import Config
+from alembic import command
 from docx import Document
 from docx.shared import Pt, RGBColor, Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -396,42 +398,6 @@ def _init_db() -> None:
     except ImportError:
         from database import Base
     Base.metadata.create_all(bind=engine)
-    inspector = inspect(engine)
-
-    # Development safety net: add columns introduced after initial migrations.
-    # create_all() does not alter existing tables.
-    if not inspector.has_table("history"):
-        return
-
-    history_columns = {col["name"] for col in inspector.get_columns("history")}
-    certificates_columns = {col["name"] for col in inspector.get_columns("certificates")} if inspector.has_table("certificates") else set()
-
-    with engine.begin() as conn:
-        if "user_email" not in history_columns:
-            conn.execute(text("ALTER TABLE history ADD COLUMN user_email VARCHAR"))
-        if "created_by_info" not in certificates_columns:
-            conn.execute(text("ALTER TABLE certificates ADD COLUMN created_by_info VARCHAR"))
-        
-        # SQLite doesn't support IF NOT EXISTS in CREATE INDEX for some versions 
-        # or it might already exist. We try for safety.
-        try:
-            conn.execute(text("CREATE INDEX ix_history_user_email ON history (user_email)"))
-        except Exception:
-            pass
-
-
-
-def _serialize(doc: Dict[str, Any]) -> Dict[str, Any]:
-    # convert datetime to isoformat for json storage
-    for k, v in list(doc.items()):
-        if isinstance(v, datetime):
-            doc[k] = v.isoformat()
-    return doc
-
-def _deserialize(doc: Dict[str, Any]) -> Dict[str, Any]:
-    for k in ("created_at", "updated_at"):
-        if isinstance(doc.get(k), str):
-            try:
                 doc[k] = datetime.fromisoformat(doc[k])
             except Exception:
                 pass

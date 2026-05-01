@@ -30,7 +30,7 @@ if config.config_file_name is not None:
 # Set the sqlalchemy.url from environment or default to SQLite.
 # Production uses the manually configured DATABASE_URL, not the Vercel/Turso
 # integration TURSO_DATABASE_URL, to avoid deployment-created databases.
-database_url = os.getenv("DATABASE_URL")
+database_url = os.getenv("DATABASE_URL") or os.getenv("TURSO_DATABASE_URL")
 if not database_url:
     # Use the same default logic as in database.py
     DATA_DIR = os.getenv("STORAGE_DIR", os.path.join(str(ROOT_DIR), "data"))

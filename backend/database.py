@@ -38,6 +38,7 @@ def normalize_database_url(database_url: str) -> str:
         database_url = f"sqlite+libsql://{database_url[len('libsql://'):]}"
     if database_url.startswith("sqlite+libsql://"):
         prefix = "sqlite+libsql://"
+        auth_token = (os.getenv("TURSO_AUTH_TOKEN") or os.getenv("DATABASE_AUTH_TOKEN") or "").strip()
         rest = database_url[len(prefix):]
         base = rest.split("?", 1)[0]
         if base and not base.startswith("/") and "/" not in base:
