@@ -398,12 +398,112 @@ def _init_db() -> None:
     except ImportError:
         from database import Base
     Base.metadata.create_all(bind=engine)
+
+    # Run Alembic migrations programmatically
+    try:
+        logging.info("Running database migrations...")
+        alembic_cfg = Config(ROOT_DIR / "alembic.ini")
+        alembic_cfg.set_main_option("sqlalchemy.url", DATABASE_URL)
+        command.upgrade(alembic_cfg, "head")
+        logging.info("Migrations completed successfully.")
+    except Exception as e:
+        logging.error(f"Migration error: {e}")
+
+    inspector = inspect(engine)
+    if not inspector.has_table("history"):
+        return
+
+    history_columns = {col["name"] for col in inspector.get_columns("history")}
+    certificates_columns = {col["name"] for col in inspector.get_columns("certificates")} if inspector.has_table("certificates") else set()
+
+    with engine.begin() as conn:
+        if "user_email" not in history_columns:
+            conn.execute(text("ALTER TABLE history ADD COLUMN user_email VARCHAR"))
+        if "created_by_info" not in certificates_columns:
+            conn.execute(text("ALTER TABLE certificates ADD COLUMN created_by_info VARCHAR"))
+        
+        try:
+            conn.execute(text("CREATE INDEX ix_history_user_email ON history (user_email)"))
+        except Exception:
+            pass
+
+
+def _serialize(doc: Dict[str, Any]) -> Dict[str, Any]:
+    # convert datetime to isoformat for json storage
+    for k, v in list(doc.items()):
+        if isinstance(v, datetime):
+            doc[k] = v.isoformat()
+    return doc
+
+
+def _deserialize(doc: Dict[str, Any]) -> Dict[str, Any]:
+    for k in ("created_at", "updated_at"):
+        if isinstance(doc.get(k), str):
+            try:
+                doc[k] = datetime.fromisoformat(doc[k])
+            except Exception:
+                pass
+    return doc
+
+
+def _parse_dt(value: Optional[str]) -> Optional[datetime]:
+    if not value or not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except Exception:
+        return None
+
+
+def _is_expired(expires_at: Optional[str]) -> bool:
+    dt = _parse_dt(expires_at)
+    if not dt:
+        return False
+    return _now() >= dt
+
+
+def _hash_password(password: str) -> str:
+    iterations = 120_000
+    salt = os.urandom(16)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
+    return "pbkdf2_sha256${}${}${}".format(
+        iterations,
+        base64.b64encode(salt).decode("utf-8"),
+        base64.b64encode(dk).decode("utf-8"),
+    )
+
+
+def _verify_password(password: str, stored: str) -> bool:
+    try:
+        algo, iterations_str, salt_b64, hash_b64 = stored.split("$", 3)
+        if algo != "pbkdf2_sha256":
+            return False
+        iterations = int(iterations_str)
+        salt = base64.b64decode(salt_b64.encode("utf-8"))
+        expected = base64.b64decode(hash_b64.encode("utf-8"))
+        dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
+        return hmac.compare_digest(dk, expected)
+    except Exception:
+        return False
+
+
+def _new_token() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def _random_password() -> str:
+    return secrets.token_urlsafe(12)
+
+
+def _is_blank(v: Optional[str]) -> bool:
+    return not (v or "").strip()
+
+
 # -----------------------------
 # Universal models
 # -----------------------------
 class UniversalIdentity(BaseModel):
     model_config = ConfigDict(extra="ignore")
-
     person_name: str = ""
     company_name: str = ""
 
@@ -2162,4 +2262,3 @@ app.include_router(api_router)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
