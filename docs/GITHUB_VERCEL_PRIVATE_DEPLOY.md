@@ -28,7 +28,7 @@ Add these in Vercel Project Settings > Environment Variables:
 ```text
 ENVIRONMENT=production
 DATABASE_URL=sqlite+libsql://<your-turso-host>?secure=true
-TURSO_AUTH_TOKEN=<your-turso-token>
+DATABASE_AUTH_TOKEN=<your-turso-token>
 CORS_ORIGINS=https://<your-vercel-domain>
 ALLOWED_HOSTS=<your-vercel-host>
 ADMIN_EMAIL=<your-admin-email>
@@ -39,6 +39,10 @@ FORCE_HTTPS=true
 ```
 
 Do not add `VITE_BACKEND_URL` for the single Vercel project setup. The frontend will use `/api`.
+
+Use a manually created Turso database for `DATABASE_URL`. Do not use the Vercel
+Turso Marketplace integration variables if they create `dpl-*` databases for
+each deployment.
 
 ## 3. Password-Only App Access
 
@@ -61,7 +65,7 @@ After setting Turso credentials, run:
 cd d:\certificate\backend
 $env:ENVIRONMENT="production"
 $env:DATABASE_URL="sqlite+libsql://<your-turso-host>?secure=true"
-$env:TURSO_AUTH_TOKEN="<your-turso-token>"
+$env:DATABASE_AUTH_TOKEN="<your-turso-token>"
 alembic upgrade head
 ```
 

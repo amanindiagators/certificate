@@ -17,17 +17,13 @@ ENVIRONMENT = (os.getenv("ENVIRONMENT") or os.getenv("VERCEL_ENV") or "developme
 IS_PRODUCTION = ENVIRONMENT in {"prod", "production"}
 
 def _resolve_database_url() -> str:
-    turso_database_url = (os.getenv("TURSO_DATABASE_URL") or "").strip()
     database_url = (os.getenv("DATABASE_URL") or "").strip()
 
     if database_url:
         return database_url
 
-    if turso_database_url:
-        return turso_database_url
-
     if IS_PRODUCTION:
-        raise RuntimeError("DATABASE_URL or TURSO_DATABASE_URL is missing in Vercel settings.")
+        raise RuntimeError("DATABASE_URL is missing in Vercel settings.")
 
     DATA_DIR = Path(os.getenv("STORAGE_DIR", str(ROOT_DIR / "data")))
     if not IS_PRODUCTION:
@@ -60,7 +56,12 @@ def create_database_engine(database_url: str):
 
     if database_url.startswith("sqlite+libsql://"):
         parts = urlsplit(database_url)
-        auth_token = (os.getenv("TURSO_AUTH_TOKEN") or "").strip()
+        auth_token = (
+            os.getenv("DATABASE_AUTH_TOKEN")
+            or os.getenv("LIBSQL_AUTH_TOKEN")
+            or os.getenv("TURSO_AUTH_TOKEN")
+            or ""
+        ).strip()
         filtered_query = []
         for key, value in parse_qsl(parts.query, keep_blank_values=True):
             if key == "authToken":
