@@ -879,10 +879,9 @@ def _init_db():
         # Run Alembic migrations to ensure schema is up to date
         ini_path = os.path.join(ROOT_DIR, "alembic.ini")
         if os.path.exists(ini_path):
-            logging.info("Running Alembic migrations...")
             alembic_cfg = Config(ini_path)
-            # Use the live DATABASE_URL from our config
-            alembic_cfg.set_main_option("sqlalchemy.url", DATABASE_URL.replace("sqlite+libsql://", "libsql://"))
+            # Use the live DATABASE_URL as resolved by our config (handles auth tokens)
+            alembic_cfg.set_main_option("sqlalchemy.url", DATABASE_URL)
             command.upgrade(alembic_cfg, "head")
             logging.info("Database initialization completed successfully.")
         else:
@@ -1467,7 +1466,23 @@ api_router = APIRouter(prefix="/api")
 
 @api_router.get("/health")
 def health_check():
-    return {"status": "alive", "environment": ENVIRONMENT}
+    db_status = "unknown"
+    db_type = "unknown"
+    try:
+        from database import DATABASE_URL
+        db_type = "Turso/libSQL" if "libsql" in DATABASE_URL else "Local SQLite"
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        db_status = "connected"
+    except Exception as e:
+        db_status = f"error: {str(e)}"
+
+    return {
+        "status": "alive", 
+        "environment": ENVIRONMENT, 
+        "database_type": db_type,
+        "database_status": db_status
+    }
 
 @app.on_event("startup")
 async def startup_event():

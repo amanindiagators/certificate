@@ -59,32 +59,28 @@ def create_database_engine(database_url: str):
         raise RuntimeError("File-based SQLite is not allowed in production. Set DATABASE_URL to Turso/libSQL.")
 
     if database_url.startswith("sqlite+libsql://"):
-        parts = urlsplit(database_url)
         auth_token = (
             os.getenv("DATABASE_AUTH_TOKEN")
             or os.getenv("LIBSQL_AUTH_TOKEN")
             or os.getenv("TURSO_AUTH_TOKEN")
             or ""
         ).strip()
-        filtered_query = []
-        for key, value in parse_qsl(parts.query, keep_blank_values=True):
-            if key == "authToken":
-                auth_token = auth_token or value
-                continue
-            filtered_query.append((key, value))
-        database_url = urlunsplit(
-            (
-                parts.scheme,
-                parts.netloc,
-                parts.path,
-                urlencode(filtered_query),
-                parts.fragment,
-            )
-        )
+        
+        # Ensure the URL is clean and doesn't contain a duplicate authToken in query
+        if "?" in database_url:
+            base, query = database_url.split("?", 1)
+            params = dict(parse_qsl(query))
+            params.pop("authToken", None)
+            if auth_token:
+                params["authToken"] = auth_token
+            database_url = f"{base}?{urlencode(params)}"
+        elif auth_token:
+            database_url = f"{database_url}?authToken={auth_token}"
+
         return create_engine(
             database_url,
             pool_pre_ping=True,
-            connect_args={"auth_token": auth_token} if auth_token else {},
+            connect_args={"check_same_thread": False},
         )
 
     if database_url.startswith("sqlite"):
