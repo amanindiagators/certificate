@@ -3,7 +3,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
-from urllib.parse import quote
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 # Base directory
 ROOT_DIR = Path(__file__).parent
@@ -17,9 +17,18 @@ ENVIRONMENT = (os.getenv("ENVIRONMENT") or os.getenv("VERCEL_ENV") or "developme
 IS_PRODUCTION = ENVIRONMENT in {"prod", "production"}
 
 def _resolve_database_url() -> str:
-    database_url = os.getenv("DATABASE_URL") or os.getenv("TURSO_DATABASE_URL")
+    turso_database_url = (os.getenv("TURSO_DATABASE_URL") or "").strip()
+    turso_auth_token = (os.getenv("TURSO_AUTH_TOKEN") or "").strip()
+    database_url = (os.getenv("DATABASE_URL") or "").strip()
+
+    if turso_database_url and turso_auth_token:
+        return turso_database_url
+
     if database_url:
-        return database_url.strip()
+        return database_url
+
+    if turso_database_url:
+        return turso_database_url
 
     if IS_PRODUCTION:
         raise RuntimeError("DATABASE_URL or TURSO_DATABASE_URL is missing in Vercel settings.")
@@ -55,9 +64,11 @@ def create_database_engine(database_url: str):
 
     if database_url.startswith("sqlite+libsql://"):
         auth_token = os.getenv("TURSO_AUTH_TOKEN")
-        if auth_token and "authToken=" not in database_url:
-            separator = "&" if "?" in database_url else "?"
-            database_url = f"{database_url}{separator}authToken={quote(auth_token, safe='')}"
+        if auth_token:
+            parts = urlsplit(database_url)
+            query = [(key, value) for key, value in parse_qsl(parts.query, keep_blank_values=True) if key != "authToken"]
+            query.append(("authToken", auth_token))
+            database_url = urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query, quote_via=quote), parts.fragment))
         return create_engine(
             database_url,
             pool_pre_ping=True,

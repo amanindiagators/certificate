@@ -359,11 +359,12 @@ def _validate_env():
     
     required = [
         "JWT_SECRET",
-        "DATABASE_URL",
         "ADMIN_EMAIL",
         "ADMIN_PASSWORD",
     ]
     missing = [r for r in required if not os.getenv(r)]
+    if not (os.getenv("DATABASE_URL") or os.getenv("TURSO_DATABASE_URL")):
+        missing.append("DATABASE_URL or TURSO_DATABASE_URL")
     if missing:
         raise RuntimeError(f"Missing required production environment variables: {', '.join(missing)}")
     
