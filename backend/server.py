@@ -1726,11 +1726,6 @@ async def auth_login(payload: AuthLoginRequest, request: Request):
 
             resp_dict = {"token": str(session.get("token") or ""), "user": _sanitize_user(user)}
             return AuthLoginResponse.model_validate(resp_dict)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logging.error(f"CRITICAL LOGIN ERROR: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Internal login error: {str(e)}")
 
         # Temporary user login: must match an active temp access entry
         access, reason = await asyncio.to_thread(_find_temp_access_for_login, user["id"], payload.password)
@@ -1765,6 +1760,9 @@ async def auth_login(payload: AuthLoginRequest, request: Request):
         if exc.status_code == 401:
             _record_failed_login(rate_limit_key)
         raise
+    except Exception as e:
+        logging.error(f"CRITICAL LOGIN ERROR: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal login error: {str(e)}")
 
 @api_router.post("/auth/temp-credentials")
 async def create_temp_credential(payload: TempCredentialCreate, request: Request):
