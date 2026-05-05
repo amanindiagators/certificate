@@ -22,14 +22,14 @@ export default function ClientSelector({
   className = "",
 }) {
   const { user } = useAuth();
-  const canUseClientMaster = user?.role === "admin" || user?.role === "data_executive";
+  const canUseClientSuggestions = Boolean(user);
   const [query, setQuery] = useState("");
   const [items, setItems] = useState([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!canUseClientMaster || !open) return undefined;
+    if (!canUseClientSuggestions || !open) return undefined;
 
     let canceled = false;
     const timer = window.setTimeout(async () => {
@@ -56,9 +56,9 @@ export default function ClientSelector({
       canceled = true;
       window.clearTimeout(timer);
     };
-  }, [canUseClientMaster, entityType, open, query]);
+  }, [canUseClientSuggestions, entityType, open, query]);
 
-  if (!canUseClientMaster) return null;
+  if (!canUseClientSuggestions) return null;
 
   const handleSelect = (client) => {
     setQuery(getClientName(client));
