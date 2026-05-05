@@ -38,6 +38,24 @@ function loadCASettingsLocal() {
     }
 }
 
+function autoFormatDDMMYYYY(value) {
+    let v = String(value || "").replace(/\D/g, "");
+    if (v.length > 8) v = v.slice(0, 8);
+    if (v.length >= 5) return `${v.slice(0, 2)}-${v.slice(2, 4)}-${v.slice(4)}`;
+    if (v.length >= 3) return `${v.slice(0, 2)}-${v.slice(2)}`;
+    return v;
+}
+
+function normalizeDateInput(value) {
+    const s = String(value || "").trim();
+    if (!s) return "";
+    const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (iso) return `${iso[3]}-${iso[2]}-${iso[1]}`;
+    const dmy = s.match(/^(\d{2})[./-](\d{2})[./-](\d{4})$/);
+    if (dmy) return `${dmy[1]}-${dmy[2]}-${dmy[3]}`;
+    return autoFormatDDMMYYYY(s);
+}
+
 export default function FairValueCertificatePage() {
     const navigate = useNavigate();
     const { id } = useParams();
@@ -134,7 +152,10 @@ export default function FairValueCertificatePage() {
     const updateDirector = (idx, key, val) => {
         setForm(prev => {
             const next = [...prev.directors];
-            next[idx] = { ...next[idx], [key]: val };
+            next[idx] = {
+                ...next[idx],
+                [key]: key === "date_of_appointment" ? autoFormatDDMMYYYY(val) : val,
+            };
             return { ...prev, directors: next };
         });
     };
@@ -212,9 +233,14 @@ export default function FairValueCertificatePage() {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        const directors = (form.directors || []).filter((director) =>
-            String(director?.name || director?.din || director?.designation || director?.date_of_appointment || "").trim()
-        );
+        const directors = (form.directors || [])
+            .filter((director) =>
+                String(director?.name || director?.din || director?.designation || director?.date_of_appointment || "").trim()
+            )
+            .map((director) => ({
+                ...director,
+                date_of_appointment: normalizeDateInput(director?.date_of_appointment),
+            }));
         if (!String(form.company_name || "").trim()) return toast.error("Legal Name of Company is required.");
         if (!String(form.cin || "").trim()) return toast.error("CIN / LLPIN is required.");
         if (!String(form.as_on_date || "").trim()) return toast.error("As on Date is required.");
@@ -396,7 +422,13 @@ export default function FairValueCertificatePage() {
                                                    <Input className="h-10 border-slate-200 bg-white" value={d.name} onChange={e => updateDirector(i, "name", e.target.value)} placeholder="Full Name" />
                                                    <Input className="h-10 border-slate-200 bg-white font-mono text-xs" value={d.din} onChange={e => updateDirector(i, "din", e.target.value)} placeholder="DIN/PAN" />
                                                    <Input className="h-10 border-slate-200 bg-white text-xs" value={d.designation} onChange={e => updateDirector(i, "designation", e.target.value)} placeholder="Designation" />
-                                                   <Input className="h-10 border-slate-200 bg-white" value={d.date_of_appointment} onChange={e => updateDirector(i, "date_of_appointment", e.target.value)} placeholder="Appt. Date" />
+                                                   <Input
+                                                       className="h-10 border-slate-200 bg-white"
+                                                       value={d.date_of_appointment}
+                                                       onChange={e => updateDirector(i, "date_of_appointment", e.target.value)}
+                                                       onBlur={e => updateDirector(i, "date_of_appointment", normalizeDateInput(e.target.value))}
+                                                       placeholder="DD-MM-YYYY"
+                                                   />
                                                 </div>
                                                 <Button type="button" variant="ghost" size="icon" onClick={() => removeDirector(i)} className="h-10 w-10 text-rose-500 hover:bg-rose-50 opacity-0 group-hover:opacity-100 transition-all">
                                                     <Trash2 className="h-4 w-4" />
@@ -513,7 +545,7 @@ export default function FairValueCertificatePage() {
                                                             <td className="text-left">{d.name}</td>
                                                             <td>{d.din}</td>
                                                             <td>{d.designation}</td>
-                                                            <td>{d.date_of_appointment}</td>
+                                                            <td>{normalizeDateInput(d.date_of_appointment)}</td>
                                                         </tr>
                                                     ))}
                                                     {form.directors.length === 0 && (
