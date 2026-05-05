@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 import api from "../lib/api";
+import { getApiErrorMessage } from "../lib/apiError";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -296,17 +297,6 @@ function defaultForm() {
 
     turnoverRows: getLastFinancialYears(5).map((fy) => ({ fy, amount: "" })),
   };
-}
-
-function getApiErrorMessage(error, fallback) {
-  const detail = error?.response?.data?.detail;
-  if (typeof detail === "string" && detail.trim()) return detail;
-  if (Array.isArray(detail) && detail.length) {
-    return detail
-      .map((item) => item?.msg || item?.message || JSON.stringify(item))
-      .join(" ");
-  }
-  return fallback;
 }
 
 /** ---------- Universal mapping helpers ---------- */

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import api from "../lib/api";
+import { getApiErrorMessage } from "../lib/apiError";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -691,7 +692,12 @@ export default function LiquidAssets45IBForm() {
       }
     } catch (error) {
       console.error(error);
-      toast.error(isEdit ? "Failed to update certificate." : "Failed to create certificate.");
+      toast.error(
+        getApiErrorMessage(
+          error,
+          isEdit ? "Failed to update certificate." : "Failed to create certificate."
+        )
+      );
     } finally {
       setLoading(false);
     }
