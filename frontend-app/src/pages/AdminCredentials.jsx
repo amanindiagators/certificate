@@ -39,6 +39,7 @@ const AdminCredentials = () => {
   const [officeLng, setOfficeLng] = useState("");
   const [officeRadius, setOfficeRadius] = useState("100");
   const [editingOfficeId, setEditingOfficeId] = useState(null);
+  const [resolvingPlusCode, setResolvingPlusCode] = useState(false);
 
   const loadList = async (currentStatus = status) => {
     setLoading(true);
@@ -216,6 +217,26 @@ const AdminCredentials = () => {
     setOfficeLng("");
     setOfficeRadius("100");
     setEditingOfficeId(null);
+  };
+
+  const handleResolveOfficePlusCode = async () => {
+    const plusCode = officePlusCode.trim();
+    if (!plusCode || resolvingPlusCode) return;
+
+    try {
+      setError("");
+      setResolvingPlusCode(true);
+      const payload = { plus_code: plusCode };
+      if (officeLat.trim()) payload.lat = Number(officeLat.trim());
+      if (officeLng.trim()) payload.lng = Number(officeLng.trim());
+      const res = await api.post("/api/admin/offices/resolve-plus-code", payload);
+      setOfficeLat(Number(res.data.lat).toFixed(6));
+      setOfficeLng(Number(res.data.lng).toFixed(6));
+    } catch (err) {
+      setError(err?.response?.data?.detail || "Failed to resolve Plus Code.");
+    } finally {
+      setResolvingPlusCode(false);
+    }
   };
 
   const handleCreateOffice = async (e) => {
@@ -583,14 +604,25 @@ const AdminCredentials = () => {
 
             <div>
               <label className="text-sm text-foreground">Plus Code (optional)</label>
-              <input
-                className="mt-2 w-full rounded-md border border-border bg-background px-3 py-2"
-                value={officePlusCode}
-                onChange={(e) => setOfficePlusCode(e.target.value)}
-                placeholder="J47V+HC Patna, Bihar"
-              />
+              <div className="mt-2 flex gap-2">
+                <input
+                  className="w-full rounded-md border border-border bg-background px-3 py-2"
+                  value={officePlusCode}
+                  onChange={(e) => setOfficePlusCode(e.target.value)}
+                  onBlur={handleResolveOfficePlusCode}
+                  placeholder="J47V+HC Patna, Bihar"
+                />
+                <button
+                  type="button"
+                  onClick={handleResolveOfficePlusCode}
+                  disabled={!officePlusCode.trim() || resolvingPlusCode}
+                  className="rounded-md border border-border px-3 py-2 text-sm text-muted-foreground hover:text-foreground disabled:opacity-60"
+                >
+                  {resolvingPlusCode ? "Resolving..." : "Resolve"}
+                </button>
+              </div>
               <p className="mt-1 text-xs text-muted-foreground">
-                If provided, latitude and longitude are auto-derived from Plus Code.
+                Full Plus Codes resolve directly. Short Plus Codes can include a place, for example J47V+HC Patna.
               </p>
             </div>
 

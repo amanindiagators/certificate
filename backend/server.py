@@ -5,6 +5,7 @@ from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 from dotenv import load_dotenv
 import os, json, logging, re
 import ipaddress, openlocationcode
+import httpx
 import math
 import asyncio
 from collections import defaultdict, deque
@@ -632,6 +633,12 @@ class OfficeLocationUpdate(BaseModel):
     lng: Optional[float] = None
     radius_m: Optional[float] = None
 
+class PlusCodeResolveRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    plus_code: str
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+
 class ClientCreate(BaseModel):
     model_config = ConfigDict(extra="ignore")
     entity_type: EntityType
@@ -1234,18 +1241,30 @@ def _parse_ips_from_csv(value: Optional[str]) -> List[str]:
         return []
     return [v.strip() for v in value.split(",") if v.strip()]
 
-def _extract_plus_code(value: Optional[str]) -> str:
+_plus_code_place_cache: Dict[str, Optional[Tuple[float, float]]] = {}
+
+def _split_plus_code_input(value: Optional[str]) -> Tuple[str, str]:
     """
     Accept values like:
     - 'J47V+HC Patna, Bihar'
     - '7J4VJ47V+HC'
-    and return the code token.
+    and return the code token plus any locality text.
     """
-    raw = " ".join(str(value or "").strip().upper().split())
+    raw_original = " ".join(str(value or "").strip().split())
+    raw = raw_original.upper()
     if not raw:
-        return ""
-    token = raw.split(" ", 1)[0]
-    return token.strip(",;")
+        return "", ""
+    match = re.match(r"^([A-Z0-9]{2,15}\+[A-Z0-9]{2,4})\s*[,;]?\s*(.*)$", raw)
+    if not match:
+        token = raw.split(" ", 1)[0]
+        return token.strip(",;"), ""
+    code = match.group(1).strip(",;")
+    locality = raw_original[match.end(1):].lstrip(" ,;")
+    return code, locality
+
+def _extract_plus_code(value: Optional[str]) -> str:
+    code, _ = _split_plus_code_input(value)
+    return code
 
 def _parse_lat_lng_pair(lat_raw: Optional[Any], lng_raw: Optional[Any]) -> Optional[Tuple[float, float]]:
     if not lat_raw or not lng_raw:
@@ -1265,6 +1284,34 @@ def _default_plus_code_reference() -> Optional[Tuple[float, float]]:
     for _, lat, lng, _ in _get_office_geos():
         return lat, lng
 
+def _geocode_place_for_plus_code(place: str) -> Optional[Tuple[float, float]]:
+    place_key = " ".join(str(place or "").strip().split()).lower()
+    if not place_key:
+        return None
+    if place_key in _plus_code_place_cache:
+        return _plus_code_place_cache[place_key]
+
+    try:
+        with httpx.Client(
+            timeout=4.0,
+            headers={"User-Agent": "certificate-access-location/1.0"},
+        ) as client:
+            response = client.get(
+                "https://nominatim.openstreetmap.org/search",
+                params={"q": place, "format": "jsonv2", "limit": 1},
+            )
+            response.raise_for_status()
+            results = response.json()
+            if not results:
+                _plus_code_place_cache[place_key] = None
+                return None
+            lat_lng = (float(results[0]["lat"]), float(results[0]["lon"]))
+            _plus_code_place_cache[place_key] = lat_lng
+            return lat_lng
+    except Exception:
+        _plus_code_place_cache[place_key] = None
+        return None
+
 def _decode_plus_code_to_lat_lng(
     plus_code_input: str,
     ref_lat: Optional[float] = None,
@@ -1278,19 +1325,23 @@ def _decode_plus_code_to_lat_lng(
             detail="Plus Code decoding is unavailable. Install dependency: openlocationcode.",
         )
 
-    code = _extract_plus_code(plus_code_input)
+    code, locality = _split_plus_code_input(plus_code_input)
     if not code or "+" not in code:
         raise HTTPException(status_code=400, detail="Invalid Plus Code format.")
 
     if olc.isFull(code):
         full_code = code
     elif olc.isShort(code):
+        if (ref_lat is None or ref_lng is None) and locality:
+            locality_ref = _geocode_place_for_plus_code(locality)
+            if locality_ref:
+                ref_lat, ref_lng = locality_ref
         if ref_lat is None or ref_lng is None:
             ref = _default_plus_code_reference()
             if not ref:
                 raise HTTPException(
                     status_code=400,
-                    detail="Short Plus Code needs a nearby reference. Provide lat/lng once or set OFFICE_LAT/OFFICE_LNG.",
+                    detail="Short Plus Code needs a nearby reference. Enter a full Plus Code, include a locality such as Patna, provide lat/lng once, or set OFFICE_LAT/OFFICE_LNG.",
                 )
             ref_lat, ref_lng = ref
         if ref_lat is not None and ref_lng is not None:
@@ -1836,6 +1887,14 @@ async def revoke_credential(payload: RevokeCredentialRequest, request: Request):
 async def list_offices(request: Request):
     await require_admin(request)
     return {"items": _get_office_locations()}
+
+@api_router.post("/admin/offices/resolve-plus-code")
+async def resolve_office_plus_code(payload: PlusCodeResolveRequest, request: Request):
+    await require_admin(request)
+    if _is_blank(payload.plus_code):
+        raise HTTPException(status_code=400, detail="Plus Code is required.")
+    lat, lng = _decode_plus_code_to_lat_lng(payload.plus_code, payload.lat, payload.lng)
+    return {"lat": lat, "lng": lng}
 
 @api_router.post("/admin/offices")
 async def create_office(payload: OfficeLocationCreate, request: Request):
