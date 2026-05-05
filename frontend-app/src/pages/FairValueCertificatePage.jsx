@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import api from "../lib/api";
+import { getApiErrorMessage } from "../lib/apiError";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -46,6 +47,7 @@ export default function FairValueCertificatePage() {
     const [extracting, setExtracting] = useState(false);
     const [step, setStep] = useState(isEdit ? 1 : 0);
     const [caSettings, setCaSettings] = useState(null);
+    const [entityType, setEntityType] = useState("PRIVATE_LIMITED");
     
     // Format date like "20th February, 2026"
     const formatDateObj = (date) => {
@@ -111,6 +113,7 @@ export default function FairValueCertificatePage() {
                     caFirm: cert.ca.firm,
                     registered_address: cert.identity.address,
                 }));
+                setEntityType(cert?.entityType || "PRIVATE_LIMITED");
                 setStep(1);
             }).finally(() => setLoading(false));
         }
@@ -119,6 +122,7 @@ export default function FairValueCertificatePage() {
     const update = (key, val) => setForm(p => ({ ...p, [key]: val }));
 
     const applyClient = (client) => {
+        setEntityType(client?.entity_type || "PRIVATE_LIMITED");
         setForm((prev) => ({
             ...prev,
             company_name: client?.company_name || client?.display_name || "",
@@ -208,12 +212,24 @@ export default function FairValueCertificatePage() {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        const directors = (form.directors || []).filter((director) =>
+            String(director?.name || director?.din || director?.designation || director?.date_of_appointment || "").trim()
+        );
+        if (!String(form.company_name || "").trim()) return toast.error("Legal Name of Company is required.");
+        if (!String(form.cin || "").trim()) return toast.error("CIN / LLPIN is required.");
+        if (!String(form.as_on_date || "").trim()) return toast.error("As on Date is required.");
+        if (!directors.length) return toast.error("Add at least one director before generating the certificate.");
+        if (!String(form.caFirm || "").trim()) return toast.error("Firm Name is required.");
+        if (!String(form.frn || "").trim()) return toast.error("FRN is required.");
+        if (!String(form.caName || "").trim()) return toast.error("CA Name is required.");
+        if (!String(form.membershipNo || "").trim()) return toast.error("Membership Number is required.");
+
         setLoading(true);
 
         const payload = {
             category: "LIST_OF_DIRECTORS",
             certificate_type: "list_of_directors",
-            entityType: "PRIVATE_LIMITED",
+            entityType,
             identity: {
                 company_name: form.company_name,
                 cin: form.cin,
@@ -234,7 +250,7 @@ export default function FairValueCertificatePage() {
             data: {
                 extras: {
                     ...form,
-                    directors: form.directors,
+                    directors,
                 }
             }
         };
@@ -250,7 +266,7 @@ export default function FairValueCertificatePage() {
             navigate(`/history`);
         } catch (err) {
             console.error(err);
-            toast.error("Failed to generate or save certificate.");
+            toast.error(getApiErrorMessage(err, "Failed to generate or save certificate."));
         } finally {
             setLoading(false);
         }
@@ -335,7 +351,7 @@ export default function FairValueCertificatePage() {
                                             <Input className="mt-1.5 h-12 bg-slate-50 border-slate-200 focus:bg-white" value={form.company_name} onChange={e => update("company_name", e.target.value)} required />
                                         </div>
                                         <div>
-                                            <Label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">CIN Number</Label>
+                                            <Label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">CIN / LLPIN Number</Label>
                                             <Input className="mt-1.5 h-12 bg-slate-50 border-slate-200 focus:bg-white" value={form.cin} onChange={e => update("cin", e.target.value)} required />
                                         </div>
                                         <div>
