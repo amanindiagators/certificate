@@ -3,7 +3,7 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 from dotenv import load_dotenv
-import os, json, logging
+import os, json, logging, re
 import ipaddress, openlocationcode
 import math
 import asyncio
@@ -203,6 +203,7 @@ WEAK_DEFAULT_ADMIN_PASSWORDS = {
 EntityType = Literal[
     "PERSONAL",
     "PROPRIETORSHIP",
+    "LLP",
     "PRIVATE_LIMITED",
     "PUBLIC_LIMITED",
     "TRUST",
@@ -1006,11 +1007,35 @@ def _can_user_manage_certificates(user: Dict[str, Any]) -> bool:
 def _can_user_manage_clients(user: Dict[str, Any]) -> bool:
     return (user.get("role") or "").lower() in {"admin", "data_executive"}
 
+PAN_RE = re.compile(r"^[A-Z]{5}[0-9]{4}[A-Z]$")
+GSTIN_RE = re.compile(r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$")
+CIN_RE = re.compile(r"^[LU][0-9]{5}[A-Z]{2}[0-9]{4}[A-Z]{3}[0-9]{6}$")
+LLPIN_RE = re.compile(r"^[A-Z]{3}[0-9]{4}$")
+
 def _clean_client_text(value: Optional[str]) -> str:
     return str(value or "").strip()
 
 def _normalize_client_identifier(value: Optional[str]) -> str:
-    return _clean_client_text(value).upper()
+    return re.sub(r"[\s-]+", "", _clean_client_text(value).upper())
+
+def _validate_client_identifiers(data: Dict[str, Any]) -> None:
+    entity_type = _clean_client_text(data.get("entity_type")).upper()
+    pan = _normalize_client_identifier(data.get("pan"))
+    cin = _normalize_client_identifier(data.get("cin"))
+    gstin = _normalize_client_identifier(data.get("gstin"))
+
+    if pan and not PAN_RE.fullmatch(pan):
+        raise HTTPException(status_code=400, detail="Invalid PAN format.")
+    if gstin and not GSTIN_RE.fullmatch(gstin):
+        raise HTTPException(status_code=400, detail="Invalid GSTIN format.")
+    if pan and gstin and gstin[2:12] != pan:
+        raise HTTPException(status_code=400, detail="GSTIN PAN segment must match PAN.")
+    if cin:
+        if entity_type == "LLP":
+            if not LLPIN_RE.fullmatch(cin):
+                raise HTTPException(status_code=400, detail="Invalid LLPIN format.")
+        elif not CIN_RE.fullmatch(cin):
+            raise HTTPException(status_code=400, detail="Invalid CIN format.")
 
 def _client_display_name(data: Dict[str, Any]) -> str:
     return (
@@ -2048,6 +2073,7 @@ async def create_client(payload: ClientCreate, request: Request):
     clean_data["display_name"] = _client_display_name(clean_data)
     if not clean_data["display_name"]:
         raise HTTPException(status_code=400, detail="Client name is required.")
+    _validate_client_identifiers(clean_data)
 
     now = _now().isoformat()
     client = Client(
@@ -2098,6 +2124,14 @@ async def update_client(client_id: str, payload: ClientUpdate, request: Request)
         if not client.display_name:
             raise HTTPException(status_code=400, detail="Client name is required.")
 
+        _validate_client_identifiers(
+            {
+                "entity_type": client.entity_type,
+                "pan": client.pan,
+                "cin": client.cin,
+                "gstin": client.gstin,
+            }
+        )
         _assert_no_active_client_duplicate(db, client.pan, client.cin, client.gstin, exclude_id=client_id)
         client.updated_by = user["id"]
         client.updated_at = _now().isoformat()

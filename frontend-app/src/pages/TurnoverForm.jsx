@@ -20,6 +20,7 @@ const TURNOVER_DRAFT_KEY = "draft:turnover_form_v1";
 const ENTITY_TYPES = [
   { key: "PERSONAL", label: "Individual (Personal)" },
   { key: "PROPRIETORSHIP", label: "Proprietorship Firm" },
+  { key: "LLP", label: "Limited Liability Partnership (LLP)" },
   { key: "PRIVATE_LIMITED", label: "Private Limited Company" },
   { key: "PUBLIC_LIMITED", label: "Public Limited Company" },
   { key: "TRUST", label: "Trust" },
@@ -31,6 +32,7 @@ const ENTITY_TYPES = [
 const ENTITY_FIELD_RULES = {
   PERSONAL: ["personName", "pan", "address"],
   PROPRIETORSHIP: ["firmName", "proprietorName", "pan", "gstin", "address"],
+  LLP: ["companyName", "cin", "pan", "gstin", "address"],
   PRIVATE_LIMITED: ["companyName", "cin", "pan", "gstin", "address"],
   PUBLIC_LIMITED: ["companyName", "cin", "pan", "gstin", "address"],
   TRUST: ["entityName", "trustRegNo", "pan", "reg12a", "reg80g", "address"],
@@ -43,12 +45,12 @@ const FIELD_LABELS = {
   personName: "Individual Name *",
   firmName: "Proprietorship Firm Name *",
   proprietorName: "Proprietor Name",
-  companyName: "Company Name *",
+  companyName: "Company / LLP Name *",
   entityName: "Entity Name *",
   ngoLegalType: "NGO Legal Type (Society/Trust/Section 8)",
   department: "Department / Ministry",
   pan: "PAN",
-  cin: "CIN",
+  cin: "CIN / LLPIN",
   gstin: "GSTIN (Optional)",
   trustRegNo: "Trust Registration No.",
   societyRegNo: "Society Registration No.",
@@ -71,8 +73,8 @@ function buildEntityIdentity(entityType, form) {
   else if (entityType === "PROPRIETORSHIP") {
     pushIf("Firm", form.firmName);
     pushIf("Proprietor", form.proprietorName);
-  } else if (entityType === "PRIVATE_LIMITED" || entityType === "PUBLIC_LIMITED") {
-    pushIf("Company", form.companyName);
+  } else if (["LLP", "PRIVATE_LIMITED", "PUBLIC_LIMITED"].includes(entityType)) {
+    pushIf(entityType === "LLP" ? "LLP" : "Company", form.companyName);
   } else {
     pushIf("Entity", form.entityName);
   }
@@ -418,7 +420,7 @@ export default function TurnoverForm() {
       firmName: nextEntityType === "PROPRIETORSHIP" ? clientName : "",
       proprietorName: nextEntityType === "PROPRIETORSHIP" ? client?.person_name || "" : "",
       companyName:
-        nextEntityType === "PRIVATE_LIMITED" || nextEntityType === "PUBLIC_LIMITED"
+        ["LLP", "PRIVATE_LIMITED", "PUBLIC_LIMITED"].includes(nextEntityType)
           ? clientName
           : "",
       entityName:
@@ -565,8 +567,8 @@ export default function TurnoverForm() {
   const validate = () => {
     if (entityType === "PERSONAL" && !form.personName.trim()) return "Individual Name is required.";
     if (entityType === "PROPRIETORSHIP" && !form.firmName.trim()) return "Firm Name is required.";
-    if ((entityType === "PRIVATE_LIMITED" || entityType === "PUBLIC_LIMITED") && !form.companyName.trim())
-      return "Company Name is required.";
+    if (["LLP", "PRIVATE_LIMITED", "PUBLIC_LIMITED"].includes(entityType) && !form.companyName.trim())
+      return entityType === "LLP" ? "LLP Name is required." : "Company Name is required.";
     if (["TRUST", "NGO", "SOCIETY", "GOVERNMENT"].includes(entityType) && !form.entityName.trim())
       return "Entity Name is required.";
 

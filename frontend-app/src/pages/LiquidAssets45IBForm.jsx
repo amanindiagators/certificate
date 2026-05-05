@@ -24,6 +24,7 @@ const AMOUNT_INPUT_UNITS = {
 
 const ENTITY_TYPES = [
   { key: "PROPRIETORSHIP", label: "Proprietorship Firm" },
+  { key: "LLP", label: "Limited Liability Partnership (LLP)" },
   { key: "PRIVATE_LIMITED", label: "Private Limited Company" },
   { key: "PUBLIC_LIMITED", label: "Public Limited Company" },
   { key: "TRUST", label: "Trust" },

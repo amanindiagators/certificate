@@ -17,6 +17,7 @@ const YEAR_MARCH_RE = /31(?:ST|ND|RD|TH)?\s*MARCH[,]?\s*(20\d{2})/i;
 const ENTITY_TYPES = [
   { key: "PERSONAL", label: "Individual (Personal)" },
   { key: "PROPRIETORSHIP", label: "Proprietorship Firm" },
+  { key: "LLP", label: "Limited Liability Partnership (LLP)" },
   { key: "PRIVATE_LIMITED", label: "Private Limited Company" },
   { key: "PUBLIC_LIMITED", label: "Public Limited Company" },
   { key: "TRUST", label: "Trust" },
@@ -134,6 +135,7 @@ function fySortKey(fy)
 function inferEntityType(companyName)
 {
   const name = String(companyName || "").toUpperCase();
+  if (name.includes("LIMITED LIABILITY PARTNERSHIP") || /\bLLP\b/.test(name)) return "LLP";
   if (name.includes("PRIVATE LIMITED")) return "PRIVATE_LIMITED";
   if (name.includes("LIMITED")) return "PUBLIC_LIMITED";
   if (name.includes("TRUST")) return "TRUST";
@@ -525,7 +527,7 @@ export default function UploadCertificates()
 
     if (entityType === "PERSONAL") return { ...base, personName: displayName };
     if (entityType === "PROPRIETORSHIP") return { ...base, firmName: displayName };
-    if (entityType === "PRIVATE_LIMITED" || entityType === "PUBLIC_LIMITED") {
+    if (["LLP", "PRIVATE_LIMITED", "PUBLIC_LIMITED"].includes(entityType)) {
       return { ...base, companyName: displayName };
     }
     return { ...base, entityName: displayName };
@@ -544,6 +546,7 @@ export default function UploadCertificates()
   const entityDisplayLabelByType = {
     PERSONAL: "Individual Name *",
     PROPRIETORSHIP: "Proprietorship Firm Name *",
+    LLP: "LLP Name *",
     PRIVATE_LIMITED: "Company Name *",
     PUBLIC_LIMITED: "Company Name *",
     TRUST: "Trust Name *",

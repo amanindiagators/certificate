@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 const ENTITY_TYPES = [
   { key: "PERSONAL", label: "Individual (Personal)" },
   { key: "PROPRIETORSHIP", label: "Proprietorship Firm" },
+  { key: "LLP", label: "Limited Liability Partnership (LLP)" },
   { key: "PRIVATE_LIMITED", label: "Private Limited Company" },
   { key: "PUBLIC_LIMITED", label: "Public Limited Company" },
   { key: "TRUST", label: "Trust" },
@@ -31,8 +32,41 @@ const EMPTY_FORM = {
   address: "",
 };
 
+const PAN_RE = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
+const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
+const CIN_RE = /^[LU][0-9]{5}[A-Z]{2}[0-9]{4}[A-Z]{3}[0-9]{6}$/;
+const LLPIN_RE = /^[A-Z]{3}[0-9]{4}$/;
+
 function getEntityLabel(value) {
   return ENTITY_TYPES.find((item) => item.key === value)?.label || value;
+}
+
+function normalizeIdentifier(value) {
+  return String(value || "").trim().toUpperCase().replace(/[\s-]+/g, "");
+}
+
+function normalizeClientForm(form) {
+  return {
+    ...form,
+    pan: normalizeIdentifier(form.pan),
+    cin: normalizeIdentifier(form.cin),
+    gstin: normalizeIdentifier(form.gstin),
+  };
+}
+
+function validateClientIdentifiers(form) {
+  const pan = normalizeIdentifier(form.pan);
+  const cin = normalizeIdentifier(form.cin);
+  const gstin = normalizeIdentifier(form.gstin);
+
+  if (pan && !PAN_RE.test(pan)) return "Invalid PAN format.";
+  if (gstin && !GSTIN_RE.test(gstin)) return "Invalid GSTIN format.";
+  if (pan && gstin && gstin.slice(2, 12) !== pan) return "GSTIN PAN segment must match PAN.";
+  if (cin) {
+    if (form.entity_type === "LLP" && !LLPIN_RE.test(cin)) return "Invalid LLPIN format.";
+    if (form.entity_type !== "LLP" && !CIN_RE.test(cin)) return "Invalid CIN format.";
+  }
+  return null;
 }
 
 function getPrimaryName(client) {
@@ -104,6 +138,7 @@ export default function Clients() {
   }
 
   const update = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
+  const updateIdentifier = (key, value) => update(key, normalizeIdentifier(value));
 
   const resetForm = () => {
     setEditingId("");
@@ -120,13 +155,20 @@ export default function Clients() {
 
   const handleSubmit = async (event) => {
     event.preventDefault();
+    const normalizedForm = normalizeClientForm(form);
+    const validationError = validateClientIdentifiers(normalizedForm);
+    if (validationError) {
+      toast.error(validationError);
+      setForm(normalizedForm);
+      return;
+    }
     try {
       setSaving(true);
       if (editingId) {
-        await api.put(`/api/clients/${editingId}`, form);
+        await api.put(`/api/clients/${editingId}`, normalizedForm);
         toast.success("Client updated.");
       } else {
-        await api.post("/api/clients", form);
+        await api.post("/api/clients", normalizedForm);
         toast.success("Client saved.");
       }
       resetForm();
@@ -227,15 +269,30 @@ export default function Clients() {
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <Label>PAN</Label>
-                <Input className="mt-2" value={form.pan} onChange={(event) => update("pan", event.target.value)} />
+                <Input
+                  className="mt-2"
+                  value={form.pan}
+                  onChange={(event) => updateIdentifier("pan", event.target.value)}
+                  placeholder="ABCDE1234F"
+                />
               </div>
               <div>
-                <Label>CIN</Label>
-                <Input className="mt-2" value={form.cin} onChange={(event) => update("cin", event.target.value)} />
+                <Label>CIN / LLPIN</Label>
+                <Input
+                  className="mt-2"
+                  value={form.cin}
+                  onChange={(event) => updateIdentifier("cin", event.target.value)}
+                  placeholder={form.entity_type === "LLP" ? "AAA1234" : "U12345MH2020PTC123456"}
+                />
               </div>
               <div className="sm:col-span-2">
                 <Label>GSTIN</Label>
-                <Input className="mt-2" value={form.gstin} onChange={(event) => update("gstin", event.target.value)} />
+                <Input
+                  className="mt-2"
+                  value={form.gstin}
+                  onChange={(event) => updateIdentifier("gstin", event.target.value)}
+                  placeholder="27ABCDE1234F1Z5"
+                />
               </div>
             </div>
 

@@ -21,6 +21,7 @@ const NETWORTH_DRAFT_KEY = "draft:networth_form_v1";
 const ENTITY_TYPES = [
   { key: "PERSONAL", label: "Individual (Personal)" },
   { key: "PROPRIETORSHIP", label: "Proprietorship Firm" },
+  { key: "LLP", label: "Limited Liability Partnership (LLP)" },
   { key: "PRIVATE_LIMITED", label: "Private Limited Company" },
   { key: "PUBLIC_LIMITED", label: "Public Limited Company" },
   { key: "TRUST", label: "Trust" },

@@ -23,6 +23,7 @@ const ENTITY_TYPES = [
   { key: "NGO", label: "NGO (Society/Trust/Section 8)" },
   { key: "SOCIETY", label: "Society" },
   { key: "GOVERNMENT", label: "Government / PSU / Statutory Authority" },
+  { key: "LLP", label: "Limited Liability Partnership (LLP)" },
   { key: "PRIVATE_LIMITED", label: "Private Limited Company" },
   { key: "PUBLIC_LIMITED", label: "Public Limited Company" },
 ];

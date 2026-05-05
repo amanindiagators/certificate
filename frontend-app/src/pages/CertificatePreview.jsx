@@ -12,6 +12,7 @@ import { useAuth } from "../hooks/useAuth";
 const ENTITY_LABELS = {
   PERSONAL: "Individual (Personal)",
   PROPRIETORSHIP: "Proprietorship Firm",
+  LLP: "Limited Liability Partnership (LLP)",
   PRIVATE_LIMITED: "Private Limited Company",
   PUBLIC_LIMITED: "Public Limited Company",
   TRUST: "Trust",

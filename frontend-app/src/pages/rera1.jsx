@@ -39,7 +39,7 @@ import {
 const RERA_FORM3_DRAFT_KEY = "draft:rera_form3_v1";
 
 const entityTypes = [
-  'PERSONAL', 'PROPRIETORSHIP', 'PRIVATE_LIMITED', 'PUBLIC_LIMITED', 'TRUST', 'NGO', 'SOCIETY', 'GOVERNMENT', 'COLLEGE',
+  'PERSONAL', 'PROPRIETORSHIP', 'LLP', 'PRIVATE_LIMITED', 'PUBLIC_LIMITED', 'TRUST', 'NGO', 'SOCIETY', 'GOVERNMENT', 'COLLEGE',
 ];
 
 const tableItems = [
