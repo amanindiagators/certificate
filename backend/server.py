@@ -23,10 +23,10 @@ from pydantic import BaseModel, Field, ConfigDict
 from fastapi.responses import Response
 from sqlalchemy.orm import Session as DBSession
 try:
-    from .database import engine, SessionLocal, get_db, DATABASE_URL
+    from .database import Base, engine, SessionLocal, get_db, DATABASE_URL
     from .models import User, Certificate, Client, History, Session as SessionModel, TemporaryAccess, OfficeLocation
 except ImportError:
-    from database import engine, SessionLocal, get_db, DATABASE_URL
+    from database import Base, engine, SessionLocal, get_db, DATABASE_URL
     from models import User, Certificate, Client, History, Session as SessionModel, TemporaryAccess, OfficeLocation
 from sqlalchemy import text, inspect, or_, func
 from alembic.config import Config
@@ -399,10 +399,6 @@ def _db():
 
 def _init_db() -> None:
     # Logic moved to Alembic, but we can keep create_all for safety in dev
-    try:
-        from .database import Base
-    except ImportError:
-        from database import Base
     Base.metadata.create_all(bind=engine)
 
     # Run Alembic migrations programmatically
@@ -902,8 +898,6 @@ def _init_db():
     try:
         logging.info("Initializing database...")
         # Ensure tables exist (especially if first run)
-        # Import Base here to avoid circular imports if any
-        from models import Base
         Base.metadata.create_all(bind=engine)
         
         # Run Alembic migrations to ensure schema is up to date
@@ -1647,7 +1641,6 @@ def health_check():
     db_status = "unknown"
     db_type = "unknown"
     try:
-        from database import DATABASE_URL
         db_type = "Turso/libSQL" if "libsql" in DATABASE_URL else "Local SQLite"
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
