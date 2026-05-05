@@ -285,7 +285,7 @@ function defaultForm() {
     address: "",
 
     purpose: "",
-    place: new Date().toLocaleDateString("en-IN"), // will be overwritten by CA settings place anyway
+    place: "",
     date: todayDDMMYYYY(),
 
     caFirm: "",
@@ -296,6 +296,17 @@ function defaultForm() {
 
     turnoverRows: getLastFinancialYears(5).map((fy) => ({ fy, amount: "" })),
   };
+}
+
+function getApiErrorMessage(error, fallback) {
+  const detail = error?.response?.data?.detail;
+  if (typeof detail === "string" && detail.trim()) return detail;
+  if (Array.isArray(detail) && detail.length) {
+    return detail
+      .map((item) => item?.msg || item?.message || JSON.stringify(item))
+      .join(" ");
+  }
+  return fallback;
 }
 
 /** ---------- Universal mapping helpers ---------- */
@@ -611,7 +622,12 @@ export default function TurnoverForm() {
       }
     } catch (error) {
       console.error(error);
-      toast.error(isEdit ? "Failed to update certificate." : "Failed to create certificate.");
+      toast.error(
+        getApiErrorMessage(
+          error,
+          isEdit ? "Failed to update certificate." : "Failed to create certificate."
+        )
+      );
     } finally {
       setLoading(false);
     }
