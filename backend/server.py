@@ -2083,7 +2083,7 @@ async def list_clients(
     entity_type: Optional[EntityType] = Query(default=None),
     limit: int = Query(default=50, ge=1, le=100),
 ):
-    await require_client_master_user(request)
+    await require_user(request)
     query_text = _clean_client_text(q)
     with _db() as db:
         query = db.query(Client).filter(Client.is_deleted == 0)
@@ -2106,7 +2106,7 @@ async def list_clients(
 
 @api_router.get("/clients/{client_id}")
 async def get_client(client_id: str, request: Request):
-    await require_client_master_user(request)
+    await require_user(request)
     with _db() as db:
         client = db.query(Client).filter(Client.id == client_id, Client.is_deleted == 0).first()
         if not client:
