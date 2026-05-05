@@ -331,6 +331,12 @@ def _invalidate_cached_sessions_for_user(user_id: str) -> None:
         for k in to_remove:
             _session_cache.pop(k, None)
 
+def _invalidate_cached_session_by_id(session_id: str) -> None:
+    with _session_cache_lock:
+        to_remove = [k for k, v in _session_cache.items() if v[1].get("id") == session_id]
+        for k in to_remove:
+            _session_cache.pop(k, None)
+
 def _get_office_locations_cached() -> List[Dict[str, Any]]:
     """Return office locations from in-memory cache (max 60s stale)."""
     global _office_cache
@@ -1551,6 +1557,7 @@ def _grant_geo_for_session(session_id: str) -> Dict[str, Any]:
         db.query(SessionModel).filter(SessionModel.id == session_id).update({
             "geo_granted_until": expires_at.isoformat()
         })
+    _invalidate_cached_session_by_id(session_id)
     return {"geo_granted_until": expires_at.isoformat(), "minutes": minutes}
 
 async def _auth_from_request(request: Request) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
