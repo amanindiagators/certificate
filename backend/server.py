@@ -661,6 +661,22 @@ class ClientUpdate(BaseModel):
     gstin: Optional[str] = None
     address: Optional[str] = None
 
+class ClientImportRow(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    row_number: Optional[int] = None
+    entity_type: Optional[str] = None
+    display_name: Optional[str] = None
+    person_name: Optional[str] = None
+    company_name: Optional[str] = None
+    pan: Optional[str] = None
+    cin: Optional[str] = None
+    gstin: Optional[str] = None
+    address: Optional[str] = None
+
+class ClientImportRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    rows: List[ClientImportRow]
+
 # -----------------------------
 # Validation (common + per category)
 # -----------------------------
@@ -1018,31 +1034,110 @@ PAN_RE = re.compile(r"^[A-Z]{5}[0-9]{4}[A-Z]$")
 GSTIN_RE = re.compile(r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$")
 CIN_RE = re.compile(r"^[LU][0-9]{5}[A-Z]{2}[0-9]{4}[A-Z]{3}[0-9]{6}$")
 LLPIN_RE = re.compile(r"^[A-Z]{3}[0-9]{4}$")
+CLIENT_ENTITY_ALIASES = {
+    "PERSONAL": "PERSONAL",
+    "INDIVIDUAL": "PERSONAL",
+    "PROPRIETORSHIP": "PROPRIETORSHIP",
+    "PROPRIETORSHIP FIRM": "PROPRIETORSHIP",
+    "PROPRIETOR": "PROPRIETORSHIP",
+    "LLP": "LLP",
+    "LIMITED LIABILITY PARTNERSHIP": "LLP",
+    "PRIVATE LIMITED": "PRIVATE_LIMITED",
+    "PRIVATE LIMITED COMPANY": "PRIVATE_LIMITED",
+    "PRIVATE_LIMITED": "PRIVATE_LIMITED",
+    "PVT LTD": "PRIVATE_LIMITED",
+    "PVT. LTD": "PRIVATE_LIMITED",
+    "PVT LTD.": "PRIVATE_LIMITED",
+    "PVT. LTD.": "PRIVATE_LIMITED",
+    "PVT LIMITED": "PRIVATE_LIMITED",
+    "PVT. LIMITED": "PRIVATE_LIMITED",
+    "PUBLIC LIMITED": "PUBLIC_LIMITED",
+    "PUBLIC LIMITED COMPANY": "PUBLIC_LIMITED",
+    "PUBLIC_LIMITED": "PUBLIC_LIMITED",
+    "LTD": "PUBLIC_LIMITED",
+    "LTD.": "PUBLIC_LIMITED",
+    "LIMITED": "PUBLIC_LIMITED",
+    "TRUST": "TRUST",
+    "NGO": "NGO",
+    "SOCIETY": "SOCIETY",
+    "GOVERNMENT": "GOVERNMENT",
+    "GOVERNMENT / PSU / DEPARTMENT": "GOVERNMENT",
+    "COLLEGE": "COLLEGE",
+}
 
 def _clean_client_text(value: Optional[str]) -> str:
-    return str(value or "").strip()
+    return " ".join(str(value or "").replace("\xa0", " ").split())
 
 def _normalize_client_identifier(value: Optional[str]) -> str:
     return re.sub(r"[\s-]+", "", _clean_client_text(value).upper())
 
-def _validate_client_identifiers(data: Dict[str, Any]) -> None:
+def _normalize_client_entity_type(value: Optional[str], company_name: Optional[str] = None) -> str:
+    raw = _clean_client_text(value).upper().replace("_", " ")
+    raw = re.sub(r"\s+", " ", raw).strip()
+    name = _clean_client_text(company_name).upper()
+
+    if "LIMITED LIABILITY PARTNERSHIP" in name or re.search(r"\bLLP\b", name):
+        return "LLP"
+    if raw in CLIENT_ENTITY_ALIASES:
+        return CLIENT_ENTITY_ALIASES[raw]
+    if raw.endswith(" PRIVATE LIMITED") or raw.endswith(" PVT LTD") or raw.endswith(" PVT. LTD"):
+        return "PRIVATE_LIMITED"
+    if raw.endswith(" LIMITED"):
+        return "PUBLIC_LIMITED"
+    return ""
+
+def _client_identifier_errors(data: Dict[str, Any]) -> List[Dict[str, str]]:
     entity_type = _clean_client_text(data.get("entity_type")).upper()
     pan = _normalize_client_identifier(data.get("pan"))
     cin = _normalize_client_identifier(data.get("cin"))
     gstin = _normalize_client_identifier(data.get("gstin"))
+    errors: List[Dict[str, str]] = []
 
     if pan and not PAN_RE.fullmatch(pan):
-        raise HTTPException(status_code=400, detail="Invalid PAN format.")
+        errors.append({"field": "PAN", "message": "Invalid PAN format."})
     if gstin and not GSTIN_RE.fullmatch(gstin):
-        raise HTTPException(status_code=400, detail="Invalid GSTIN format.")
+        errors.append({"field": "GSTIN", "message": "Invalid GSTIN format."})
     if pan and gstin and gstin[2:12] != pan:
-        raise HTTPException(status_code=400, detail="GSTIN PAN segment must match PAN.")
+        errors.append({"field": "GSTIN", "message": "GSTIN PAN segment must match PAN."})
     if cin:
         if entity_type == "LLP":
             if not LLPIN_RE.fullmatch(cin):
-                raise HTTPException(status_code=400, detail="Invalid LLPIN format.")
+                errors.append({"field": "CIN / LLPIN", "message": "Invalid LLPIN format."})
         elif not CIN_RE.fullmatch(cin):
-            raise HTTPException(status_code=400, detail="Invalid CIN format.")
+            errors.append({"field": "CIN / LLPIN", "message": "Invalid CIN format."})
+    return errors
+
+def _validate_client_identifiers(data: Dict[str, Any]) -> None:
+    errors = _client_identifier_errors(data)
+    if errors:
+        raise HTTPException(status_code=400, detail=errors[0]["message"])
+
+def _clean_client_payload(data: Dict[str, Any], normalize_entity_alias: bool = False) -> Tuple[Dict[str, Any], List[Dict[str, str]]]:
+    company_name = _clean_client_text(data.get("company_name"))
+    entity_type = (
+        _normalize_client_entity_type(data.get("entity_type"), company_name)
+        if normalize_entity_alias
+        else _clean_client_text(data.get("entity_type")).upper()
+    )
+    clean_data = {
+        "entity_type": entity_type,
+        "display_name": _clean_client_text(data.get("display_name")),
+        "person_name": _clean_client_text(data.get("person_name")),
+        "company_name": company_name,
+        "pan": _normalize_client_identifier(data.get("pan")),
+        "cin": _normalize_client_identifier(data.get("cin")),
+        "gstin": _normalize_client_identifier(data.get("gstin")),
+        "address": _clean_client_text(data.get("address")),
+    }
+    clean_data["display_name"] = _client_display_name(clean_data)
+
+    errors: List[Dict[str, str]] = []
+    if not clean_data["entity_type"]:
+        errors.append({"field": "Entity type", "message": f"Unsupported entity type: {_clean_client_text(data.get('entity_type')) or 'blank'}."})
+    if not clean_data["display_name"]:
+        errors.append({"field": "Display_Name", "message": "Client name is required."})
+    errors.extend(_client_identifier_errors(clean_data))
+    return clean_data, errors
 
 def _client_display_name(data: Dict[str, Any]) -> str:
     return (
@@ -2151,6 +2246,98 @@ async def create_client(payload: ClientCreate, request: Request):
 
     _log_history(user["id"], "CLIENT_CREATE", {"client_id": result["id"], "display_name": result["display_name"]})
     return result
+
+@api_router.post("/clients/import")
+async def import_clients(payload: ClientImportRequest, request: Request):
+    user = await require_client_master_user(request)
+    rows = payload.rows or []
+    if not rows:
+        raise HTTPException(status_code=400, detail="No client rows found in upload.")
+    if len(rows) > 1000:
+        raise HTTPException(status_code=400, detail="Upload up to 1000 clients at a time.")
+
+    imported: List[Dict[str, Any]] = []
+    errors: List[Dict[str, Any]] = []
+    seen_identifiers: Dict[str, Dict[str, int]] = {"pan": {}, "cin": {}, "gstin": {}}
+    duplicate_labels = {"pan": "PAN", "cin": "CIN / LLPIN", "gstin": "GSTIN"}
+
+    with _db() as db:
+        now = _now().isoformat()
+        for index, row in enumerate(rows, start=1):
+            raw_data = row.model_dump()
+            row_number = raw_data.get("row_number") or index + 1
+            clean_data, row_errors = _clean_client_payload(raw_data, normalize_entity_alias=True)
+
+            if not row_errors:
+                for field_name, label in duplicate_labels.items():
+                    value = clean_data.get(field_name)
+                    if not value:
+                        continue
+                    previous_row = seen_identifiers[field_name].get(value)
+                    if previous_row:
+                        row_errors.append({
+                            "field": label,
+                            "message": f"Duplicate {label} in upload; already used on row {previous_row}.",
+                        })
+                    else:
+                        seen_identifiers[field_name][value] = row_number
+
+            if not row_errors:
+                try:
+                    _assert_no_active_client_duplicate(
+                        db,
+                        clean_data.get("pan"),
+                        clean_data.get("cin"),
+                        clean_data.get("gstin"),
+                    )
+                except HTTPException as exc:
+                    detail = str(exc.detail)
+                    field = "Duplicate"
+                    if "PAN" in detail:
+                        field = "PAN"
+                    elif "CIN" in detail:
+                        field = "CIN / LLPIN"
+                    elif "GSTIN" in detail:
+                        field = "GSTIN"
+                    row_errors.append({"field": field, "message": detail})
+
+            if row_errors:
+                errors.append({
+                    "row_number": row_number,
+                    "display_name": clean_data.get("display_name") or "",
+                    "pan": clean_data.get("pan") or "",
+                    "cin": clean_data.get("cin") or "",
+                    "gstin": clean_data.get("gstin") or "",
+                    "errors": row_errors,
+                })
+                continue
+
+            client = Client(
+                id=str(uuid4()),
+                **clean_data,
+                created_by=user["id"],
+                updated_by=user["id"],
+                is_deleted=0,
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(client)
+            imported.append({"id": client.id, "row_number": row_number, "display_name": client.display_name})
+
+        db.commit()
+
+    _log_history(
+        user["id"],
+        "CLIENT_IMPORT",
+        {"imported": len(imported), "errors": len(errors), "rows": len(rows)},
+    )
+    return {
+        "rows_total": len(rows),
+        "imported_count": len(imported),
+        "error_count": len(errors),
+        "imported": imported,
+        "errors": errors,
+    }
 
 @api_router.put("/clients/{client_id}")
 async def update_client(client_id: str, payload: ClientUpdate, request: Request):

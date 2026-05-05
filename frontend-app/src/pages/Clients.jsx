@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { Edit2, Plus, Save, Search, Trash2, X } from "lucide-react";
+import { Edit2, FileSpreadsheet, Plus, Save, Search, Trash2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
+import * as XLSX from "xlsx";
 import api from "../lib/api";
 import { useAuth } from "../hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -32,6 +33,17 @@ const EMPTY_FORM = {
   address: "",
 };
 
+const CLIENT_IMPORT_HEADERS = {
+  entitytype: "entity_type",
+  displayname: "display_name",
+  personname: "person_name",
+  companyname: "company_name",
+  pan: "pan",
+  cin: "cin",
+  gstin: "gstin",
+  address: "address",
+};
+
 const PAN_RE = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
 const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
 const CIN_RE = /^[LU][0-9]{5}[A-Z]{2}[0-9]{4}[A-Z]{3}[0-9]{6}$/;
@@ -43,6 +55,44 @@ function getEntityLabel(value) {
 
 function normalizeIdentifier(value) {
   return String(value || "").trim().toUpperCase().replace(/[\s-]+/g, "");
+}
+
+function normalizeHeader(value) {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function excelCellToText(value) {
+  if (value === null || value === undefined) return "";
+  return String(value).replace(/\u00a0/g, " ").trim();
+}
+
+async function readClientExcelRows(file) {
+  const buffer = await file.arrayBuffer();
+  const workbook = XLSX.read(buffer, { type: "array" });
+  const firstSheetName = workbook.SheetNames[0];
+  if (!firstSheetName) return [];
+
+  const rows = XLSX.utils.sheet_to_json(workbook.Sheets[firstSheetName], {
+    header: 1,
+    defval: "",
+  });
+  const headerRow = rows[0] || [];
+  const columns = headerRow.map((header) => CLIENT_IMPORT_HEADERS[normalizeHeader(header)] || "");
+
+  return rows
+    .slice(1)
+    .map((row, rowIndex) => {
+      const item = { row_number: rowIndex + 2 };
+      columns.forEach((field, columnIndex) => {
+        if (field) item[field] = excelCellToText(row[columnIndex]);
+      });
+      return item;
+    })
+    .filter((row) =>
+      ["entity_type", "display_name", "person_name", "company_name", "pan", "cin", "gstin", "address"].some(
+        (field) => excelCellToText(row[field])
+      )
+    );
 }
 
 function normalizeClientForm(form) {
@@ -97,6 +147,10 @@ export default function Clients() {
   const [formOpen, setFormOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [importRows, setImportRows] = useState([]);
+  const [importFileName, setImportFileName] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState(null);
 
   const editingClient = useMemo(
     () => clients.find((client) => client.id === editingId),
@@ -192,6 +246,53 @@ export default function Clients() {
       toast.error(error?.response?.data?.detail || "Failed to delete client.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleImportFile = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const rows = await readClientExcelRows(file);
+      setImportRows(rows);
+      setImportFileName(file.name);
+      setImportResult(null);
+      if (!rows.length) {
+        toast.error("No client rows found in the Excel file.");
+        return;
+      }
+      toast.success(`${rows.length} client rows ready to upload.`);
+    } catch (error) {
+      setImportRows([]);
+      setImportFileName("");
+      setImportResult(null);
+      toast.error("Failed to read Excel file.");
+    }
+  };
+
+  const handleUploadImport = async () => {
+    if (!importRows.length) {
+      toast.error("Choose an Excel file first.");
+      return;
+    }
+
+    try {
+      setImporting(true);
+      const res = await api.post("/api/clients/import", { rows: importRows });
+      setImportResult(res.data);
+      const importedCount = Number(res.data?.imported_count || 0);
+      const errorCount = Number(res.data?.error_count || 0);
+      if (importedCount) await loadClients();
+      if (errorCount) {
+        toast.error(`${errorCount} row${errorCount === 1 ? "" : "s"} need correction.`);
+      } else {
+        toast.success(`${importedCount} client${importedCount === 1 ? "" : "s"} imported.`);
+      }
+    } catch (error) {
+      toast.error(error?.response?.data?.detail || "Failed to import clients.");
+    } finally {
+      setImporting(false);
     }
   };
 
@@ -309,6 +410,80 @@ export default function Clients() {
           )}
 
           <div className="bg-card border border-border rounded-lg p-6 shadow-sm space-y-5">
+            <div className="border-b pb-5">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h2 className="flex items-center gap-2 text-lg font-display font-semibold">
+                    <FileSpreadsheet className="h-5 w-5" />
+                    Excel Import
+                  </h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Upload columns like Entity type, Display_Name, Person_Name, Company_Name, PAN, CIN, GSTIN, and Address.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <label className="inline-flex cursor-pointer items-center justify-center rounded-md border border-border px-3 py-2 text-sm text-muted-foreground hover:text-foreground">
+                    <FileSpreadsheet className="mr-2 h-4 w-4" />
+                    Choose Excel
+                    <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleImportFile} />
+                  </label>
+                  <Button type="button" variant="outline" onClick={handleUploadImport} disabled={importing || !importRows.length}>
+                    <Upload className="mr-2 h-4 w-4" />
+                    {importing ? "Uploading..." : "Upload Clients"}
+                  </Button>
+                </div>
+              </div>
+
+              {importFileName ? (
+                <div className="mt-3 text-sm text-muted-foreground">
+                  Selected: <span className="text-foreground">{importFileName}</span>
+                  {importRows.length ? ` (${importRows.length} rows)` : ""}
+                </div>
+              ) : null}
+
+              {importResult ? (
+                <div className="mt-4 space-y-3">
+                  <div className="text-sm text-muted-foreground">
+                    Imported <span className="font-medium text-foreground">{importResult.imported_count}</span> of{" "}
+                    <span className="font-medium text-foreground">{importResult.rows_total}</span> rows.
+                    {importResult.error_count ? (
+                      <span className="ml-2 text-destructive">{importResult.error_count} row(s) need correction.</span>
+                    ) : null}
+                  </div>
+                  {importResult.errors?.length ? (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b text-left text-muted-foreground">
+                            <th className="py-2 pr-4 font-medium">Row</th>
+                            <th className="py-2 pr-4 font-medium">Client</th>
+                            <th className="py-2 pr-4 font-medium">PAN</th>
+                            <th className="py-2 pr-4 font-medium">CIN / LLPIN</th>
+                            <th className="py-2 pr-4 font-medium">GSTIN</th>
+                            <th className="py-2 font-medium">Error</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {importResult.errors.map((row) => (
+                            <tr key={`${row.row_number}-${row.pan}-${row.cin}-${row.gstin}`} className="border-b last:border-0">
+                              <td className="py-2 pr-4 align-top">{row.row_number}</td>
+                              <td className="py-2 pr-4 align-top">{row.display_name || "-"}</td>
+                              <td className="py-2 pr-4 align-top font-mono-data">{row.pan || "-"}</td>
+                              <td className="py-2 pr-4 align-top font-mono-data">{row.cin || "-"}</td>
+                              <td className="py-2 pr-4 align-top font-mono-data">{row.gstin || "-"}</td>
+                              <td className="py-2 align-top text-destructive">
+                                {(row.errors || []).map((error) => `${error.field}: ${error.message}`).join(" ")}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+
             <div className="flex flex-col gap-3 border-b pb-3 md:flex-row md:items-end">
               <div className="flex-1">
                 <Label>Search</Label>
