@@ -279,7 +279,7 @@ def _validate_password_strength(password: str) -> Optional[str]:
 
 LOGIN_RATE_LIMIT_ATTEMPTS = _env_int("LOGIN_RATE_LIMIT_ATTEMPTS", 5, 1)
 LOGIN_RATE_LIMIT_WINDOW_SEC = _env_int("LOGIN_RATE_LIMIT_WINDOW_SEC", 300, 1)
-LOGIN_RATE_LIMIT_LOCKOUT_SEC = _env_int("LOGIN_RATE_LIMIT_LOCKOUT_SEC", 900, 1)
+LOGIN_RATE_LIMIT_LOCKOUT_SEC = _env_int("LOGIN_RATE_LIMIT_LOCKOUT_SEC", 300, 1)
 FORCE_HTTPS = _env_bool("FORCE_HTTPS", IS_PRODUCTION)
 ENABLE_API_DOCS = _env_bool("ENABLE_API_DOCS", not IS_PRODUCTION)
 _login_attempts: Dict[str, deque[datetime]] = defaultdict(deque)
